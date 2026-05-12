@@ -76,6 +76,3 @@ The tool reads from a pre-generated shared-memory data store (populated by `sply
 - AirControl2 credentials are read from a shared config file at runtime
 - No credentials are hardcoded in committed files
 
-## License
-
-Private — internal use only.
