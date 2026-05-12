@@ -1,0 +1,9 @@
+# Block direct access to secrets and config files
+<FilesMatch "(secrets|config)\.php$">
+    Require all denied
+</FilesMatch>
+
+# Block robots
+<IfModule mod_headers.c>
+    Header set X-Robots-Tag "noindex, nofollow"
+</IfModule>

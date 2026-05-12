@@ -1,0 +1,25 @@
+<?php
+// --- Splynx ---
+$splynxBaseUrl = 'https://your-splynx-instance.example.com/api/2.0';
+$splynxAdminUrl = 'https://your-splynx-instance.example.com';
+$apiKey = 'your_splynx_api_key';
+$apiSecret = 'your_splynx_api_secret';
+define('DATA_STORE_PATH', '/dev/shm/splynx_active_services.json');
+
+// --- AirControl2 ---
+$aircontrolCredsFile = '/var/www/.config/airos-to-dhcp/aircontrol_creds';
+
+// --- WISP-graphing ---
+$wispGraphingDbPath = __DIR__ . '/../WISP-graphing/backend-php/nms.db';
+
+// --- WISP-graphing Speed Test API ---
+$wispGraphingApiKey = 'your_wisp_graphing_api_key';
+$wispGraphingApiBaseUrl = 'http://localhost/WISP-graphing/api.php/v1/external';
+
+// --- AirOS SSH Credentials ---
+// Stored in secrets.php (excluded from git)
+require_once __DIR__ . '/secrets.php';
+$airosDefaultPort = 22;
+
+// --- TP-Link Speed Test API ---
+$tpLinkSpeedTestApiUrl = 'http://192.168.100.117:9210';
