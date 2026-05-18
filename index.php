@@ -56,6 +56,8 @@
 
 <script>
 const TPLINK_API_URL = <?= json_encode($tpLinkSpeedTestApiUrl) ?>;
+const TPLINK_HX510_ENABLED = <?= json_encode($enableTplinkHX510 ?? false) ?>;
+const HX510_DIAG_URL = <?= json_encode($hx510DiagnosticsUrl ?? '') ?>;
 let searchTimer = null;
 let lastDiagData = null;
 let lastLanData = null;
@@ -449,7 +451,7 @@ async function fetchSnmpCambium(ip, community) {
                     <th style="padding:6px 8px">Interface</th>
                 </tr></thead><tbody>`;
             data.arp.forEach(a => {
-                if (a.vendor && a.vendor.toLowerCase().includes('tp-link systems inc')) hasTPLink = true;
+                if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
                 html += `<tr style="border-bottom:1px solid #e5e7eb">
                     <td style="padding:5px 8px">${esc(a.ip)}</td>
                     <td style="padding:5px 8px;font-family:monospace;font-size:0.8rem">${esc(a.mac)}</td>
@@ -459,25 +461,111 @@ async function fetchSnmpCambium(ip, community) {
             });
             html += '</tbody></table>';
         } else {
-            html += '<p style="color:#666">No connected devices found via SNMP ARP table</p>';
+            html += '<p style="color:#6366f1" id="snmpFallbackMsg">No SNMP ARP data — trying SSH CLI...</p>';
+        }
+
+        // If SNMP returned no ARP, try SSH fallback for Cambium ePMP
+        if (!data.arp || data.arp.length === 0) {
+            try {
+                const sshResp = await fetch(`cambium_lan.php?ip=${encodeURIComponent(ip)}`);
+                const sshData = await sshResp.json();
+                if (sshData.arp && sshData.arp.length > 0) {
+                    let sshHtml = `<div style="margin-top:0.5rem"><strong style="font-size:0.85rem;color:#475569">ARP Table (via SSH CLI)</strong></div>
+                        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:0.25rem">
+                        <thead><tr style="background:#f1f5f9;text-align:left">
+                            <th style="padding:6px 8px">IP</th>
+                            <th style="padding:6px 8px">MAC</th>
+                            <th style="padding:6px 8px">Vendor</th>
+                            <th style="padding:6px 8px">Interface</th>
+                        </tr></thead><tbody>`;
+                    sshData.arp.forEach(a => {
+                        if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
+                        sshHtml += `<tr style="border-bottom:1px solid #e5e7eb">
+                            <td style="padding:5px 8px">${esc(a.ip)}</td>
+                            <td style="padding:5px 8px;font-family:monospace;font-size:0.8rem">${esc(a.mac)}</td>
+                            <td style="padding:5px 8px;font-size:0.8rem;color:#666">${esc(a.vendor || '-')}</td>
+                            <td style="padding:5px 8px">${esc(a.device || '-')}</td>
+                        </tr>`;
+                    });
+                    sshHtml += '</tbody></table>';
+                    
+                    // Replace the "trying SSH" message with actual results
+                    const msgEl = document.getElementById('snmpFallbackMsg');
+                    if (msgEl) msgEl.outerHTML = sshHtml;
+                    
+                    // Update lastLanData with SSH results
+                    lastLanData = sshData;
+                    
+                    // Show TP-Link Remote Access if TP-Link found via SSH and feature enabled
+                    if (hasTPLink && TPLINK_HX510_ENABLED) {
+                        const pfDiv = document.createElement('div');
+                        pfDiv.style = 'margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb';
+                        pfDiv.innerHTML = `<strong style="font-size:0.85rem;color:#475569">TP-Link Remote Access</strong>
+                            <div id="tplinkPortFwResult" style="margin-top:0.5rem;font-size:0.85rem;color:#6366f1">Checking port forward...</div>`;
+                        result.appendChild(pfDiv);
+                        
+                        // Check if port forward already exists from the SSH data
+                        if (sshData.port_forwards && sshData.port_forwards.length > 0) {
+                            const tplinkArp = sshData.arp.find(a => a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink')));
+                            if (tplinkArp) {
+                                const fwd = sshData.port_forwards.find(f => f.lan_ip === tplinkArp.ip);
+                                const el = document.getElementById('tplinkPortFwResult');
+                                if (fwd) {
+                                    const url = `https://${esc(ip)}:${fwd.wan_port_begin}`;
+                                    const hasStatic = sshData.dhcp_hosts && sshData.dhcp_hosts.some(h => h.mac === tplinkArp.mac);
+                                    el.innerHTML = `<span style="color:#16a34a">✓ Port forward active</span> — 
+                                        <a href="${url}" target="_blank" style="color:#2563eb;font-weight:600">${url}</a>
+                                        ${!hasStatic ? '<span style="color:#f59e0b;margin-left:0.5rem">⚠ No static DHCP lease</span>' : ''}
+                                        <span style="color:#666;margin-left:0.5rem">(${esc(tplinkArp.vendor)} at ${esc(tplinkArp.ip)})</span>`;
+                                } else {
+                                    el.innerHTML = `<span style="color:#f59e0b">TP-Link found at ${esc(tplinkArp.ip)} — no port forward to port 443</span>`;
+                                }
+                            }
+                        } else {
+                            const tplinkArp = sshData.arp.find(a => a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink')));
+                            const el = document.getElementById('tplinkPortFwResult');
+                            if (tplinkArp) {
+                                el.innerHTML = `<span style="color:#f59e0b">TP-Link found at ${esc(tplinkArp.ip)} — no port forward configured</span>`;
+                            }
+                        }
+                    }
+                } else if (sshData.error) {
+                    const msgEl = document.getElementById('snmpFallbackMsg');
+                    if (msgEl) msgEl.innerHTML = `No connected devices found (SNMP empty, SSH: ${esc(sshData.error)})`;
+                    msgEl.style.color = '#666';
+                } else {
+                    const msgEl = document.getElementById('snmpFallbackMsg');
+                    if (msgEl) { msgEl.textContent = 'No connected devices found via SNMP or SSH'; msgEl.style.color = '#666'; }
+                }
+            } catch(e) {
+                const msgEl = document.getElementById('snmpFallbackMsg');
+                if (msgEl) { msgEl.textContent = 'No connected devices found via SNMP ARP table'; msgEl.style.color = '#666'; }
+            }
         }
 
         // TP-Link Speed Test buttons if a TP-Link device is detected
         if (hasTPLink) {
             html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
-                <strong style="font-size:0.85rem;color:#475569">TP-Link Speed Test</strong>
+                <strong style="font-size:0.85rem;color:#475569">TP-Link HX510</strong>
                 <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-                    <button class="btn" id="tplinkSpeedTestBtn" onclick="runTpLinkSpeedTest('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000;font-weight:600">TP-Link Speed Test (60s)</button>
-                    <button class="btn" id="tplinkHistoryBtn" onclick="fetchTpLinkHistory('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#64748b">TP-Link Speed Test History</button>
+                    <button class="btn" id="tplinkSpeedTestBtn" onclick="runTpLinkSpeedTest('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000;font-weight:600">Speed Test (60s)</button>
+                    <button class="btn" id="tplinkHistoryBtn" onclick="fetchTpLinkHistory('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#64748b">Speed Test History</button>
+                    ${HX510_DIAG_URL ? `<a href="${HX510_DIAG_URL}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#0891b2;text-decoration:none">Diagnostics</a>` : ''}
                     <span id="tplinkSpeedTestStatus" style="font-size:0.85rem;color:#6366f1;font-weight:500"></span>
                 </div>
                 <div id="tplinkSpeedTestResult" style="margin-top:0.75rem"></div>
+                ${TPLINK_HX510_ENABLED ? '<div id="tplinkPortFwResult" style="margin-top:0.75rem;font-size:0.85rem;color:#6366f1">Checking remote access...</div>' : ''}
             </div>`;
         }
 
         result.innerHTML = html;
         btn.style.display = 'none';
         lastLanData = data;
+
+        // Auto-check TP-Link port forward for Cambium radios
+        if (hasTPLink && TPLINK_HX510_ENABLED) {
+            checkCambiumPortForward(ip);
+        }
     } catch(e) {
         result.innerHTML = `<p style="color:#dc2626">Error: ${esc(e.message)}</p>`;
         btn.disabled = false; btn.textContent = 'Retry';
@@ -664,7 +752,7 @@ async function fetchDhcpLeases(ip, sshPort) {
         // Check leases for TP-Link
         if (data.leases.length > 0) {
             data.leases.forEach(l => {
-                if (l.vendor && l.vendor.toLowerCase().includes('tp-link systems inc')) hasTPLink = true;
+                if (l.vendor && (l.vendor.toLowerCase().includes('tp-link') || l.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
             });
             html += `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-bottom:1rem">
                 <thead><tr style="background:#f1f5f9;text-align:left">
@@ -691,7 +779,7 @@ async function fetchDhcpLeases(ip, sshPort) {
         if (data.arp.length > 0) {
             // Check ARP for TP-Link too
             data.arp.forEach(a => {
-                if (a.vendor && a.vendor.toLowerCase().includes('tp-link systems inc')) hasTPLink = true;
+                if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
             });
             html += `<div style="margin-top:0.5rem"><strong style="font-size:0.85rem;color:#475569">ARP Table</strong></div>
                 <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:0.25rem">
@@ -715,19 +803,26 @@ async function fetchDhcpLeases(ip, sshPort) {
         // TP-Link Speed Test buttons if a TP-Link device is detected
         if (hasTPLink) {
             html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
-                <strong style="font-size:0.85rem;color:#475569">TP-Link Speed Test</strong>
+                <strong style="font-size:0.85rem;color:#475569">TP-Link HX510</strong>
                 <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-                    <button class="btn" id="tplinkSpeedTestBtn" onclick="runTpLinkSpeedTest('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000;font-weight:600">TP-Link Speed Test (60s)</button>
-                    <button class="btn" id="tplinkHistoryBtn" onclick="fetchTpLinkHistory('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#64748b">TP-Link Speed Test History</button>
+                    <button class="btn" id="tplinkSpeedTestBtn" onclick="runTpLinkSpeedTest('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000;font-weight:600">Speed Test (60s)</button>
+                    <button class="btn" id="tplinkHistoryBtn" onclick="fetchTpLinkHistory('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#64748b">Speed Test History</button>
+                    ${HX510_DIAG_URL ? `<a href="${HX510_DIAG_URL}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#0891b2;text-decoration:none">Diagnostics</a>` : ''}
                     <span id="tplinkSpeedTestStatus" style="font-size:0.85rem;color:#6366f1;font-weight:500"></span>
                 </div>
                 <div id="tplinkSpeedTestResult" style="margin-top:0.75rem"></div>
+                ${(TPLINK_HX510_ENABLED && lastDiagData && lastDiagData.aircontrol2) ? '<div id="tplinkPortFwResult" style="margin-top:0.75rem;font-size:0.85rem;color:#6366f1">Checking remote access...</div>' : ''}
             </div>`;
         }
 
         result.innerHTML = html;
         btn.style.display = 'none';
         lastLanData = data;
+
+        // Auto-check/create TP-Link port forward if AC2 radio with TP-Link on LAN
+        if (hasTPLink && lastDiagData && lastDiagData.aircontrol2 && TPLINK_HX510_ENABLED) {
+            checkTplinkPortForward(ip, sshPort);
+        }
     } catch(e) {
         result.innerHTML = `<p style="color:#dc2626">Error: ${esc(e.message)}</p>`;
         btn.disabled = false; btn.textContent = 'Retry';
@@ -756,7 +851,7 @@ async function runTpLinkSpeedTest(radioIp) {
             clearInterval(tplinkCooldownTimer);
             tplinkCooldownTimer = null;
             btn.disabled = false;
-            btn.textContent = 'TP-Link Speed Test (60s)';
+            btn.textContent = 'Speed Test (60s)';
         }
     }, 1000);
 
@@ -814,7 +909,7 @@ async function fetchTpLinkHistory(radioIp) {
             resultDiv.innerHTML = `<p style="color:#dc2626;font-size:0.85rem">HTTP ${resp.status}: ${esc(text || resp.statusText)}</p>
                 <p style="font-size:0.8rem;color:#666">GET ${esc(url)}</p>`;
             histBtn.disabled = false;
-            histBtn.textContent = 'TP-Link Speed Test History';
+            histBtn.textContent = 'Speed Test History';
             return;
         }
 
@@ -825,7 +920,7 @@ async function fetchTpLinkHistory(radioIp) {
         } else {
             const results = Array.isArray(data) ? data : (data.results || data.history || []);
             if (results.length === 0) {
-                resultDiv.innerHTML = '<p style="color:#666;font-size:0.85rem">No TP-Link speed test history</p>';
+                resultDiv.innerHTML = '<p style="color:#666;font-size:0.85rem">No Speed Test History</p>';
             } else {
                 let html = `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:0.5rem">
                     <thead><tr style="background:#f1f5f9;text-align:left">
@@ -861,7 +956,7 @@ async function fetchTpLinkHistory(radioIp) {
     }
 
     histBtn.disabled = false;
-    histBtn.textContent = 'TP-Link Speed Test History';
+    histBtn.textContent = 'Speed Test History';
 }
 
 function renderTpLinkResult(data) {
@@ -875,6 +970,187 @@ function renderTpLinkResult(data) {
         ${gi('Ping', ping)}
         ${server ? gi('Server', server) : ''}
     </div>`;
+}
+
+// --- TP-Link Port Forward ---
+async function checkTplinkPortForward(radioIp, sshPort) {
+    const el = document.getElementById('tplinkPortFwResult');
+    if (!el) return;
+
+    try {
+        const resp = await fetch(`/tplink-HX510-helpers/ubiquiti_airos_portforward.php?ip=${encodeURIComponent(radioIp)}&ssh_port=${sshPort}&action=check`);
+        const data = await resp.json();
+
+        if (data.status === 'exists') {
+            el.innerHTML = `<span style="color:#16a34a">✓ Port forward active</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>
+                <span style="color:#666;margin-left:0.5rem">(${esc(data.tplink_vendor)} at ${esc(data.tplink_ip)})</span>`;
+        } else if (data.status === 'needs_static') {
+            el.innerHTML = `<span style="color:#f59e0b">⚠ Port forward exists but no static DHCP lease</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>
+                <button class="btn-sm btn-ping" onclick="makeStaticLease('${esc(radioIp)}', ${sshPort})" style="margin-left:0.5rem">Make Static</button>`;
+        } else if (data.status === 'needs_forward') {
+            el.innerHTML = `<span style="color:#f59e0b">Creating port forward (WAN:${data.wan_port} → ${esc(data.tplink_ip)}:443)...</span>`;
+            createTplinkPortForward(radioIp, sshPort, data.wan_port);
+        } else if (data.status === 'port_conflict') {
+            el.innerHTML = `<span style="color:#dc2626">Port ${data.suggested_port - 1} in use.</span> 
+                <button class="btn-sm btn-ping" onclick="promptPortForward('${esc(radioIp)}', ${sshPort})">Choose port</button>
+                <span style="color:#666;margin-left:0.5rem">(${esc(data.tplink_vendor)} at ${esc(data.tplink_ip)})</span>`;
+        } else if (data.status === 'no_tplink') {
+            el.innerHTML = `<span style="color:#666">No TP-Link device found</span>`;
+        } else if (data.error) {
+            el.innerHTML = `<span style="color:#dc2626">${esc(data.error)}</span>`;
+        }
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Check failed: ${esc(e.message)}</span>`;
+    }
+}
+
+async function createTplinkPortForward(radioIp, sshPort, wanPort) {
+    const el = document.getElementById('tplinkPortFwResult');
+
+    try {
+        const resp = await fetch(`/tplink-HX510-helpers/ubiquiti_airos_portforward.php?ip=${encodeURIComponent(radioIp)}&ssh_port=${sshPort}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=create&wan_port=${wanPort}`
+        });
+        const data = await resp.json();
+
+        if (data.status === 'created' || data.status === 'created_unverified') {
+            let msg = `<span style="color:#16a34a">✓ Port forward created</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>`;
+            if (data.made_dhcp_static) {
+                msg += `<span style="color:#666;margin-left:0.5rem">(DHCP lease made static)</span>`;
+            }
+            el.innerHTML = msg;
+        } else if (data.status === 'port_conflict') {
+            el.innerHTML = `<span style="color:#dc2626">${esc(data.error)}</span>
+                <button class="btn-sm btn-ping" onclick="promptPortForward('${esc(radioIp)}', ${sshPort})">Choose port</button>`;
+        } else {
+            el.innerHTML = `<span style="color:#dc2626">Failed: ${esc(data.error || data.message || 'Unknown error')}</span>`;
+        }
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Create failed: ${esc(e.message)}</span>`;
+    }
+}
+
+function promptPortForward(radioIp, sshPort) {
+    const port = prompt('Enter WAN port for TP-Link HTTPS forward:', '6444');
+    if (port && parseInt(port) > 0) {
+        const el = document.getElementById('tplinkPortFwResult');
+        el.innerHTML = `<span style="color:#f59e0b">Creating port forward (WAN:${esc(port)} → LAN:443)...</span>`;
+        createTplinkPortForward(radioIp, sshPort, parseInt(port));
+    }
+}
+
+// --- Cambium ePMP Port Forward Check ---
+async function checkCambiumPortForward(radioIp) {
+    const el = document.getElementById('tplinkPortFwResult');
+    if (!el) return;
+
+    try {
+        const resp = await fetch(`/tplink-HX510-helpers/cambium_portforward.php?ip=${encodeURIComponent(radioIp)}&action=check`);
+        const data = await resp.json();
+
+        if (data.status === 'exists') {
+            el.innerHTML = `<span style="color:#16a34a">✓ Port forward active</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>
+                <span style="color:#666;margin-left:0.5rem">(${esc(data.tplink_vendor)} at ${esc(data.tplink_ip)})</span>`;
+        } else if (data.status === 'needs_static') {
+            el.innerHTML = `<span style="color:#f59e0b">⚠ Port forward exists but no static DHCP lease</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>
+                <div style="margin-top:0.5rem">
+                    <span style="color:#dc2626;font-size:0.8rem">Making static will reboot the radio</span>
+                    <button class="btn-sm btn-ping" onclick="createCambiumPortForward('${esc(radioIp)}', ${data.wan_port})" style="margin-left:0.5rem">Make Static (reboot)</button>
+                </div>`;
+        } else if (data.status === 'needs_forward') {
+            // Check if static DHCP will be needed (IP is not 192.168.5.2)
+            const needsReboot = data.tplink_ip !== '192.168.5.2';
+            if (needsReboot) {
+                el.innerHTML = `<span style="color:#dc2626;font-weight:600">⚠ Creating port forward + static DHCP will reboot the radio</span>
+                    <span style="color:#666;margin-left:0.5rem">(${esc(data.tplink_vendor)} at ${esc(data.tplink_ip)})</span>
+                    <div style="margin-top:0.5rem">
+                        <button class="btn" onclick="createCambiumPortForward('${esc(radioIp)}', ${data.wan_port})" style="font-size:0.85rem;padding:6px 14px;background:#dc2626">Continue (will reboot)</button>
+                    </div>`;
+            } else {
+                el.innerHTML = `<span style="color:#f59e0b">Creating port forward (WAN:${data.wan_port} → ${esc(data.tplink_ip)}:443)...</span>`;
+                createCambiumPortForward(radioIp, data.wan_port);
+            }
+        } else if (data.status === 'port_conflict') {
+            el.innerHTML = `<span style="color:#dc2626">Port ${data.suggested_port - 1} in use.</span>
+                <button class="btn-sm btn-ping" onclick="promptCambiumPortForward('${esc(radioIp)}')">Choose port</button>
+                <span style="color:#666;margin-left:0.5rem">(${esc(data.tplink_vendor)} at ${esc(data.tplink_ip)})</span>`;
+        } else if (data.status === 'no_tplink') {
+            el.innerHTML = `<span style="color:#666">No TP-Link device found</span>`;
+        } else if (data.error) {
+            el.innerHTML = `<span style="color:#dc2626">${esc(data.error)}</span>`;
+        }
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Check failed: ${esc(e.message)}</span>`;
+    }
+}
+
+async function createCambiumPortForward(radioIp, wanPort) {
+    const el = document.getElementById('tplinkPortFwResult');
+
+    try {
+        const resp = await fetch(`/tplink-HX510-helpers/cambium_portforward.php?ip=${encodeURIComponent(radioIp)}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `action=create&wan_port=${wanPort}`
+        });
+        const data = await resp.json();
+
+        if (data.status === 'created' || data.status === 'created_unverified') {
+            let msg = `<span style="color:#16a34a">✓ Port forward created</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>`;
+            if (data.made_dhcp_static) {
+                msg += `<span style="color:#666;margin-left:0.5rem">(DHCP lease made static)</span>`;
+            }
+            el.innerHTML = msg;
+        } else if (data.status === 'port_conflict') {
+            el.innerHTML = `<span style="color:#dc2626">${esc(data.error)}</span>
+                <button class="btn-sm btn-ping" onclick="promptCambiumPortForward('${esc(radioIp)}')">Choose port</button>`;
+        } else {
+            el.innerHTML = `<span style="color:#dc2626">Failed: ${esc(data.error || data.message || 'Unknown error')}</span>`;
+        }
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Create failed: ${esc(e.message)}</span>`;
+    }
+}
+
+function promptCambiumPortForward(radioIp) {
+    const port = prompt('Enter WAN port for HX510 HTTPS forward:', '6444');
+    if (port && parseInt(port) > 0) {
+        const el = document.getElementById('tplinkPortFwResult');
+        el.innerHTML = `<span style="color:#f59e0b">Creating port forward (WAN:${esc(port)} → LAN:443)...</span>`;
+        createCambiumPortForward(radioIp, parseInt(port));
+    }
+}
+
+async function makeStaticLease(radioIp, sshPort) {
+    const el = document.getElementById('tplinkPortFwResult');
+    el.innerHTML = `<span style="color:#6366f1">Making DHCP lease static...</span>`;
+
+    try {
+        const resp = await fetch(`/tplink-HX510-helpers/ubiquiti_airos_portforward.php?ip=${encodeURIComponent(radioIp)}&ssh_port=${sshPort}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: 'action=create'
+        });
+        const data = await resp.json();
+
+        if (data.made_dhcp_static) {
+            el.innerHTML = `<span style="color:#16a34a">✓ Port forward active, DHCP lease made static</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>`;
+        } else {
+            el.innerHTML = `<span style="color:#16a34a">✓ Port forward active</span>
+                <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>`;
+        }
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Failed: ${esc(e.message)}</span>`;
+    }
 }
 </script>
 </body>

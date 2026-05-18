@@ -20,6 +20,14 @@ $wispGraphingApiBaseUrl = 'http://localhost/WISP-graphing/api.php/v1/external';
 // Stored in secrets.php (excluded from git)
 require_once __DIR__ . '/secrets.php';
 $airosDefaultPort = 22;
+$cambiumSshPort = 8022;  // ePMP SSH port (default 8022)
 
 // --- TP-Link Speed Test API ---
 $tpLinkSpeedTestApiUrl = 'http://192.168.100.117:9210';
+
+// --- TP-Link HX510 ---
+$hx510DiagnosticsUrl = 'http://your-hx510-diagnostics-url:9210';
+
+// --- TP-Link Port Forward ---
+$portForwardSrcIp = '0.0.0.0';  // Management IP allowed through port forward (e.g. your NOC IP)
+$enableTplinkHX510 = false;  // Enable TP-Link HX510 port forward auto-management

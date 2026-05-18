@@ -52,64 +52,16 @@ if ($fping) {
 $result['aircontrol2'] = null;
 $ac2Found = false;
 
-if (file_exists($aircontrolCredsFile)) {
-    $lines = file($aircontrolCredsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    if (!empty($lines)) {
-        $p = preg_split('/\s+/', trim($lines[0]));
-        $base = ($p[4]??'https')."://".($p[0]??'').":".($p[3]??'9082')."/api/v1";
-        $cookie = tempnam(sys_get_temp_dir(), 'ac2_');
-
-        $ch = curl_init("{$base}/login");
-        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
-            CURLOPT_POSTFIELDS=>json_encode(['username'=>$p[1]??'','password'=>$p[2]??'']),
-            CURLOPT_HTTPHEADER=>['Content-Type: application/json'],
-            CURLOPT_COOKIEJAR=>$cookie, CURLOPT_SSL_VERIFYPEER=>false, CURLOPT_SSL_VERIFYHOST=>0, CURLOPT_TIMEOUT=>10]);
-        curl_exec($ch); $loginCode = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
-
-        if ($loginCode === 200) {
-            $ch = curl_init("{$base}/devices");
-            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_COOKIEFILE=>$cookie,
-                CURLOPT_SSL_VERIFYPEER=>false, CURLOPT_SSL_VERIFYHOST=>0, CURLOPT_TIMEOUT=>120]);
-            $devResp = curl_exec($ch); curl_close($ch);
-
-            $devices = (json_decode($devResp, true))['results'] ?? [];
-            $targetLong = ip2long($ip);
-
-            foreach ($devices as $dev) {
-                $props = $dev['properties'] ?? [];
-                if (($props['ip'] ?? null) && (int)$props['ip'] === $targetLong) {
-                    $ac2Found = true;
-                    $status = $dev['status'] ?? [];
-                    $summary = $dev['summary'] ?? [];
-
-                    $result['aircontrol2'] = [
-                        'device_name'    => $props['hostname'] ?? $summary['deviceNodeName'] ?? '',
-                        'model'          => $summary['subsystemId'] ?? '',
-                        'online'         => !empty($status['online']),
-                        'last_seen'      => $dev['lastHeartbeat'] ?? null,
-                        'signal'         => $props['signal@ath0~current'] ?? $props['signal@ath0~5min'] ?? null,
-                        'noise'          => $props['noise@ath0~current'] ?? null,
-                        'tx_rate'        => $props['txRate@ath0~current'] ?? null,
-                        'rx_rate'        => $props['rxRate@ath0~current'] ?? null,
-                        'tx_throughput'  => $props['txTroughput@ath0~current'] ?? null,
-                        'rx_throughput'  => $props['rxTroughput@ath0~current'] ?? null,
-                        'lan_speed'      => $props['lanSpeed'] ?? null,
-                        'eth_status'     => $props['ifStatus@eth0'] ?? null,
-                        'uptime'         => $props['uptime'] ?? null,
-                        'firmware'       => $dev['firmwareVersion']['full'] ?? '',
-                        'air_time'       => $props['airTime~current'] ?? null,
-                        'channel_width'  => $props['channelWidth'] ?? null,
-                        'frequency'      => $props['freq@ath0'] ?? null,
-                        'ssid'           => $props['essid'] ?? null,
-                        'ssh_port'       => $props['sshPort'] ?? null,
-                        'web_port'       => $props['webUiPort'] ?? null,
-                    ];
-                    break;
-                }
-            }
-        }
-        @unlink($cookie);
+require_once __DIR__ . '/../aircontrol2-helpers/AirControl2Client.php';
+$ac2Client = new AirControl2Client($aircontrolCredsFile);
+if ($ac2Client->isConfigured() && $ac2Client->login()) {
+    $device = $ac2Client->findDeviceByIp($ip);
+    if ($device) {
+        $ac2Found = true;
+        $info = AirControl2Client::extractDeviceInfo($device);
+        $result['aircontrol2'] = $info;
     }
+    $ac2Client->logout();
 }
 
 // --- WISP-graphing availability flag ---
