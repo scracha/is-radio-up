@@ -8,7 +8,7 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/oui_lookup.php';
 header('Content-Type: application/json');
-set_time_limit(15);
+set_time_limit(30);
 
 $ip = trim($_GET['ip'] ?? '');
 $community = trim($_GET['community'] ?? 'public');
@@ -93,6 +93,41 @@ $cambiumLanStatus = cleanSnmp(@snmpget($ip, $community, '1.3.6.1.4.1.17713.21.1.
 if ($cambiumLanSpeed !== null || $cambiumLanStatus !== null) {
     $result['lan']['cambium_speed'] = $cambiumLanSpeed;
     $result['lan']['cambium_status'] = $cambiumLanStatus;
+}
+
+// Fetch DHCP leases via SNMP (Cambium dhcpServerLeaseTable)
+// OIDs: .1.3.6.1.4.1.17713.21.1.7.6.1.2 = MAC, .3 = IP, .4 = DeviceName
+$dhcpLeaseMacs = @snmpwalkoid($ip, $community, '1.3.6.1.4.1.17713.21.1.7.6.1.2', 1000000, 1) ?: [];
+$dhcpLeaseIPs = @snmpwalkoid($ip, $community, '1.3.6.1.4.1.17713.21.1.7.6.1.3', 1000000, 1) ?: [];
+
+$dhcpLeaseMap = []; // mac => ['hostname' => ..., 'ip' => ...]
+$leaseMacs = [];
+foreach ($dhcpLeaseMacs as $oid => $val) {
+    preg_match('/\.(\d+)$/', $oid, $m);
+    if (isset($m[1])) $leaseMacs[$m[1]] = strtoupper(str_replace([' ', '-'], ':', trim(cleanSnmp($val))));
+}
+$leaseIPs = [];
+foreach ($dhcpLeaseIPs as $oid => $val) {
+    preg_match('/\.(\d+)$/', $oid, $m);
+    if (isset($m[1])) $leaseIPs[$m[1]] = cleanSnmp($val);
+}
+
+// Fetch device names individually by index (snmpwalk on .4 triggers genError on some firmware)
+$leaseNames = [];
+foreach (array_keys($leaseMacs) as $idx) {
+    $nameVal = @snmpget($ip, $community, "1.3.6.1.4.1.17713.21.1.7.6.1.4.{$idx}", 1000000, 1);
+    if ($nameVal !== false) {
+        $leaseNames[$idx] = cleanSnmp($nameVal);
+    }
+}
+
+foreach ($leaseMacs as $idx => $mac) {
+    if ($mac && strlen($mac) >= 11) {
+        $dhcpLeaseMap[$mac] = [
+            'hostname' => $leaseNames[$idx] ?? '',
+            'ip' => $leaseIPs[$idx] ?? '',
+        ];
+    }
 }
 
 // Pick the best ethernet interface to report
@@ -199,6 +234,31 @@ foreach ($macs as $idx => $mac) {
             'mac'       => $mac,
             'vendor'    => oui_lookup($mac),
             'interface' => $ifaces[$idx] ?? '',
+        ];
+    }
+}
+
+// Merge DHCP hostnames into ARP entries
+$arpMacs = [];
+foreach ($result['arp'] as &$arpEntry) {
+    $mac = strtoupper(str_replace([' ', '-'], ':', $arpEntry['mac']));
+    $arpMacs[] = $mac;
+    if (isset($dhcpLeaseMap[$mac])) {
+        $arpEntry['hostname'] = $dhcpLeaseMap[$mac]['hostname'];
+    }
+}
+unset($arpEntry);
+
+// Add DHCP leases not in ARP table
+$result['dhcp_leases'] = [];
+foreach ($dhcpLeaseMap as $mac => $lease) {
+    if (!in_array($mac, $arpMacs)) {
+        $result['dhcp_leases'][] = [
+            'ip' => $lease['ip'],
+            'mac' => $mac,
+            'hostname' => $lease['hostname'],
+            'vendor' => oui_lookup($mac),
+            'in_arp' => false,
         ];
     }
 }

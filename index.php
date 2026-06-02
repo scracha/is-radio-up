@@ -58,6 +58,8 @@
 const TPLINK_API_URL = <?= json_encode($tpLinkSpeedTestApiUrl) ?>;
 const TPLINK_HX510_ENABLED = <?= json_encode($enableTplinkHX510 ?? false) ?>;
 const HX510_DIAG_URL = <?= json_encode($hx510DiagnosticsUrl ?? '') ?>;
+const MIKROTIK_ENABLED = <?= json_encode(($mikrotikConfig['enabled'] ?? false)) ?>;
+const CAMBIUM_WEB_PORT = <?= json_encode($cambiumWebPort ?? 8443) ?>;
 let searchTimer = null;
 let lastDiagData = null;
 let lastLanData = null;
@@ -140,7 +142,7 @@ function renderDiagnosis(d) {
         // AC2 webUiPort or default 443
         webUrl = `https://${esc(d.ip)}:${ac2.web_port || 443}`;
     } else if (wg) {
-        webUrl = `https://${esc(d.ip)}:8443`;
+        webUrl = `https://${esc(d.ip)}:${CAMBIUM_WEB_PORT}`;
     }
     const ipLink = isUp ? `<a href="${webUrl}" target="_blank" style="color:inherit;text-decoration:underline">${esc(d.ip)}</a>` : esc(d.ip);
     html += `<div class="status-banner ${isUp ? 'status-up' : 'status-down'}">
@@ -172,8 +174,8 @@ function renderDiagnosis(d) {
             ${gi('Model', ac2.model)}
             ${gi('SSID', ac2.ssid || '-')}
             ${gi('Signal', ac2.signal ? ac2.signal + ' dBm' : '-', signalClass(ac2.signal))}
-            ${gi('TX Rate', formatRate(ac2.tx_rate))}
-            ${gi('RX Rate', formatRate(ac2.rx_rate))}
+            ${gi('TX Rate', formatRate(ac2.tx_rate), txRateClass(ac2.tx_rate))}
+            ${gi('RX Rate', formatRate(ac2.rx_rate), rxRateClass(ac2.rx_rate))}
             ${gi('LAN', formatLanSpeed(ac2.lan_speed) + ' / ' + formatEthStatus(ac2.eth_status), lanClass(ac2.lan_speed, ac2.eth_status))}
             ${gi('Frequency', (ac2.frequency ? ac2.frequency + ' MHz' : '-') + (ac2.channel_width ? ' @ ' + ac2.channel_width + ' MHz' : ''))}
             ${gi('Uptime', formatUptime(ac2.uptime))}
@@ -192,7 +194,7 @@ function renderDiagnosis(d) {
             ${gi('MCS UL', formatMCS(wg.mcs_upload))}
             ${gi('MCS DL', formatMCS(wg.mcs_download))}
             ${gi('Retrans DL', wg.retrans_dl ? wg.retrans_dl + '%' : '-', retransClass(wg.retrans_dl))}
-            ${gi('LAN Rate', wg.lan_rate ? wg.lan_rate + ' Mbps' + (wg.last_poll_mins_ago !== null ? ' (' + formatMinsAgo(wg.last_poll_mins_ago) + ')' : '') : '-')}
+            ${gi('LAN Rate', wg.lan_rate ? wg.lan_rate + ' Mbps' + (wg.last_poll_mins_ago !== null ? ' (' + formatMinsAgo(wg.last_poll_mins_ago) + ')' : '') : '-', lanRateClass(wg.lan_rate))}
             ${gi('MAC', wg.mac || '-')}
             ${gi('Last Seen', wg.status === 'online' ? 'Now' : (wg.last_seen_mins_ago !== null ? formatMinsAgo(wg.last_seen_mins_ago) : '-'))}
         </div></div>`;
@@ -245,7 +247,10 @@ function giRaw(label, html, cls) {
 function statusClass(s) { return s === 'active' ? 'val-good' : s === 'blocked' ? 'val-bad' : s === 'stopped' ? 'val-warn' : ''; }
 function signalClass(s) { if (!s) return ''; const v = parseInt(s); return v >= -65 ? 'val-good' : v >= -75 ? 'val-warn' : 'val-bad'; }
 function retransClass(r) { if (!r) return ''; const v = parseFloat(r); return v < 5 ? 'val-good' : v < 15 ? 'val-warn' : 'val-bad'; }
+function lanRateClass(r) { if (!r) return ''; const v = parseInt(r); if (v >= 1000) return 'val-good'; if (v >= 100) return 'val-warn'; return 'val-bad'; }
 function formatRate(r) { if (!r) return '-'; const mbps = parseInt(r) / 1000000; return mbps.toFixed(0) + ' Mbps'; }
+function txRateClass(r) { if (!r) return ''; const mbps = parseInt(r) / 1000000; if (mbps >= 100) return 'val-good'; if (mbps >= 25) return 'val-warn'; return 'val-bad'; }
+function rxRateClass(r) { if (!r) return ''; const mbps = parseInt(r) / 1000000; if (mbps >= 110) return 'val-good'; if (mbps >= 75) return 'val-warn'; return 'val-bad'; }
 function formatThroughput(t) { if (!t) return '-'; const bps = parseInt(t); if (bps > 1000000) return (bps/1000000).toFixed(1) + ' Mbps'; if (bps > 1000) return (bps/1000).toFixed(0) + ' kbps'; return bps + ' bps'; }
 function formatLanSpeed(s) {
     if (!s && s !== 0) return '-';
@@ -261,7 +266,9 @@ function lanClass(speed, eth) {
     if (!speed && speed !== 0) return '';
     const v = parseInt(speed);
     if (v === 1 || (eth !== null && parseInt(eth) !== 1)) return 'val-bad';  // Unplugged or DOWN
-    if (v === 34) return 'val-warn';  // 10 Mbps
+    if (v === 4 || v === 8 || v === 20) return 'val-bad';  // 10 Mbps or half duplex
+    if (v === 36) return 'val-warn';  // 100 FD
+    if (v === 40) return 'val-good';  // 1000 FD
     return '';
 }
 function formatUptime(u) { if (!u) return '-'; const s = parseInt(u); const d = Math.floor(s/86400); const h = Math.floor((s%86400)/3600); return d > 0 ? d+'d '+h+'h' : h+'h'; }
@@ -442,26 +449,72 @@ async function fetchSnmpCambium(ip, community) {
 
         // ARP / connected devices
         let hasTPLink = false;
+        let hasMikrotik = false;
+        let tplinkHostname = '';
         if (data.arp && data.arp.length > 0) {
             html += `<table style="width:100%;border-collapse:collapse;font-size:0.85rem">
                 <thead><tr style="background:#f1f5f9;text-align:left">
                     <th style="padding:6px 8px">IP</th>
                     <th style="padding:6px 8px">MAC</th>
                     <th style="padding:6px 8px">Vendor</th>
+                    <th style="padding:6px 8px">Hostname</th>
                     <th style="padding:6px 8px">Interface</th>
                 </tr></thead><tbody>`;
             data.arp.forEach(a => {
-                if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
+                const isPrivateIp = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(a.ip);
+                if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) { hasTPLink = true; if (a.hostname) tplinkHostname = a.hostname; }
+                if (isPrivateIp && a.vendor && (a.vendor.toLowerCase().includes('routerboard') || a.vendor.toLowerCase().includes('mikrotik'))) hasMikrotik = true;
                 html += `<tr style="border-bottom:1px solid #e5e7eb">
                     <td style="padding:5px 8px">${esc(a.ip)}</td>
                     <td style="padding:5px 8px;font-family:monospace;font-size:0.8rem">${esc(a.mac)}</td>
                     <td style="padding:5px 8px;font-size:0.8rem;color:#666">${esc(a.vendor || '-')}</td>
+                    <td style="padding:5px 8px;font-size:0.8rem">${esc(a.hostname || '-')}</td>
                     <td style="padding:5px 8px">${esc(a.interface || '-')}</td>
                 </tr>`;
             });
             html += '</tbody></table>';
         } else {
             html += '<p style="color:#6366f1" id="snmpFallbackMsg">No SNMP ARP data — trying SSH CLI...</p>';
+        }
+
+        // Also check DHCP hosts for vendor detection (ARP entries can go stale)
+        if (data.dhcp_hosts) {
+            data.dhcp_hosts.forEach(h => {
+                const name = (h.name || '').toLowerCase();
+                const mac = h.mac || '';
+                // OUI lookup not available client-side, but check name
+                if (name.includes('mikrotik') || name.includes('routerboard')) hasMikrotik = true;
+                if (name.includes('tp-link') || name.includes('tplink') || name.includes('hx510')) hasTPLink = true;
+            });
+        }
+
+        // Check DHCP leases for vendor detection and display devices not in ARP
+        if (data.dhcp_leases && data.dhcp_leases.length > 0) {
+            data.dhcp_leases.forEach(l => {
+                if (l.vendor && (l.vendor.toLowerCase().includes('tp-link') || l.vendor.toLowerCase().includes('tplink'))) { hasTPLink = true; if (l.hostname) tplinkHostname = l.hostname; }
+                if (l.vendor && (l.vendor.toLowerCase().includes('routerboard') || l.vendor.toLowerCase().includes('mikrotik'))) hasMikrotik = true;
+                if (l.hostname && (l.hostname.toLowerCase().includes('mikrotik') || l.hostname.toLowerCase().includes('routerboard'))) hasMikrotik = true;
+            });
+            const nonArpLeases = data.dhcp_leases.filter(l => !l.in_arp);
+            if (nonArpLeases.length > 0) {
+                html += `<div style="margin-top:0.75rem"><strong style="font-size:0.85rem;color:#475569">DHCP Leases (not in ARP)</strong></div>
+                    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:0.25rem">
+                    <thead><tr style="background:#f1f5f9;text-align:left">
+                        <th style="padding:6px 8px">IP</th>
+                        <th style="padding:6px 8px">MAC</th>
+                        <th style="padding:6px 8px">Vendor</th>
+                        <th style="padding:6px 8px">Hostname</th>
+                    </tr></thead><tbody>`;
+                nonArpLeases.forEach(l => {
+                    html += `<tr style="border-bottom:1px solid #e5e7eb">
+                        <td style="padding:5px 8px">${esc(l.ip)}</td>
+                        <td style="padding:5px 8px;font-family:monospace;font-size:0.8rem">${esc(l.mac)}</td>
+                        <td style="padding:5px 8px;font-size:0.8rem;color:#666">${esc(l.vendor || '-')}</td>
+                        <td style="padding:5px 8px;font-size:0.8rem">${esc(l.hostname || '-')}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+            }
         }
 
         // If SNMP returned no ARP, try SSH fallback for Cambium ePMP
@@ -480,6 +533,7 @@ async function fetchSnmpCambium(ip, community) {
                         </tr></thead><tbody>`;
                     sshData.arp.forEach(a => {
                         if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
+                        if (a.vendor && (a.vendor.toLowerCase().includes('routerboard') || a.vendor.toLowerCase().includes('mikrotik'))) hasMikrotik = true;
                         sshHtml += `<tr style="border-bottom:1px solid #e5e7eb">
                             <td style="padding:5px 8px">${esc(a.ip)}</td>
                             <td style="padding:5px 8px;font-family:monospace;font-size:0.8rem">${esc(a.mac)}</td>
@@ -488,6 +542,49 @@ async function fetchSnmpCambium(ip, community) {
                         </tr>`;
                     });
                     sshHtml += '</tbody></table>';
+
+                    // Also check DHCP static hosts for Mikrotik/TP-Link (ARP can go stale)
+                    if (sshData.dhcp_hosts) {
+                        sshData.dhcp_hosts.forEach(h => {
+                            const name = (h.name || '').toLowerCase();
+                            if (name.includes('mikrotik') || name.includes('routerboard')) hasMikrotik = true;
+                            if (name.includes('tp-link') || name.includes('tplink') || name.includes('hx510')) hasTPLink = true;
+                        });
+                    }
+
+                    // Check DHCP active leases for vendor detection and display devices not in ARP
+                    if (sshData.dhcp_leases && sshData.dhcp_leases.length > 0) {
+                        const nonArpLeases = sshData.dhcp_leases.filter(l => !l.in_arp);
+                        // Check vendors
+                        sshData.dhcp_leases.forEach(l => {
+                            if (l.vendor && (l.vendor.toLowerCase().includes('tp-link') || l.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
+                            if (l.vendor && (l.vendor.toLowerCase().includes('routerboard') || l.vendor.toLowerCase().includes('mikrotik'))) hasMikrotik = true;
+                        });
+                        // Show leases not in ARP table
+                        if (nonArpLeases.length > 0) {
+                            const leaseDiv = document.createElement('div');
+                            leaseDiv.style = 'margin-top:0.75rem';
+                            let leaseHtml = `<strong style="font-size:0.85rem;color:#475569">DHCP Leases (not in ARP)</strong>
+                                <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:0.25rem">
+                                <thead><tr style="background:#f1f5f9;text-align:left">
+                                    <th style="padding:6px 8px">IP</th>
+                                    <th style="padding:6px 8px">MAC</th>
+                                    <th style="padding:6px 8px">Vendor</th>
+                                    <th style="padding:6px 8px">Hostname</th>
+                                </tr></thead><tbody>`;
+                            nonArpLeases.forEach(l => {
+                                leaseHtml += `<tr style="border-bottom:1px solid #e5e7eb">
+                                    <td style="padding:5px 8px">${esc(l.ip)}</td>
+                                    <td style="padding:5px 8px;font-family:monospace;font-size:0.8rem">${esc(l.mac)}</td>
+                                    <td style="padding:5px 8px;font-size:0.8rem;color:#666">${esc(l.vendor || '-')}</td>
+                                    <td style="padding:5px 8px">${esc(l.hostname || '-')}</td>
+                                </tr>`;
+                            });
+                            leaseHtml += '</tbody></table>';
+                            leaseDiv.innerHTML = leaseHtml;
+                            result.appendChild(leaseDiv);
+                        }
+                    }
                     
                     // Replace the "trying SSH" message with actual results
                     const msgEl = document.getElementById('snmpFallbackMsg');
@@ -529,6 +626,17 @@ async function fetchSnmpCambium(ip, community) {
                             }
                         }
                     }
+
+                    // Show Mikrotik Remote Access if Routerboard found via SSH
+                    if (hasMikrotik && MIKROTIK_ENABLED) {
+                        const mkDiv = document.createElement('div');
+                        mkDiv.style = 'margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb';
+                        mkDiv.innerHTML = `<strong style="font-size:0.85rem;color:#475569">Mikrotik (Routerboard)</strong>
+                            <div id="mikrotikPortFwResult" style="margin-top:0.5rem;font-size:0.85rem;color:#6366f1">Checking port forwards...</div>
+                            <div id="mikrotikBtestSection" style="margin-top:0.75rem"></div>`;
+                        result.appendChild(mkDiv);
+                        checkMikrotikPortForward(ip);
+                    }
                 } else if (sshData.error) {
                     const msgEl = document.getElementById('snmpFallbackMsg');
                     if (msgEl) msgEl.innerHTML = `No connected devices found (SNMP empty, SSH: ${esc(sshData.error)})`;
@@ -545,8 +653,11 @@ async function fetchSnmpCambium(ip, community) {
 
         // TP-Link Speed Test buttons if a TP-Link device is detected
         if (hasTPLink) {
+            const isHx510 = tplinkHostname.toLowerCase().includes('hx510');
+            const hx510Warning = (!isHx510 && tplinkHostname) ? `<div style="color:#d97706;font-size:0.8rem;margin-bottom:0.5rem">⚠ This TP-Link device may not be an HX510 (hostname: ${esc(tplinkHostname)})</div>` : (!isHx510 && !tplinkHostname ? `<div style="color:#d97706;font-size:0.8rem;margin-bottom:0.5rem">⚠ This TP-Link device may not be an HX510 (no hostname detected)</div>` : '');
             html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
                 <strong style="font-size:0.85rem;color:#475569">TP-Link HX510</strong>
+                ${hx510Warning}
                 <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
                     <button class="btn" id="tplinkSpeedTestBtn" onclick="runTpLinkSpeedTest('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000;font-weight:600">Speed Test (60s)</button>
                     <button class="btn" id="tplinkHistoryBtn" onclick="fetchTpLinkHistory('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#64748b">Speed Test History</button>
@@ -558,6 +669,24 @@ async function fetchSnmpCambium(ip, community) {
             </div>`;
         }
 
+        // Mikrotik (Routerboard) section if detected
+        if (hasMikrotik && MIKROTIK_ENABLED) {
+            html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
+                <strong style="font-size:0.85rem;color:#475569">Mikrotik (Routerboard)</strong>
+                <div id="mikrotikPortFwResult" style="margin-top:0.5rem;font-size:0.85rem;color:#6366f1">Checking port forwards...</div>
+                <div id="mikrotikBtestSection" style="margin-top:0.75rem"></div>
+            </div>`;
+        }
+
+        // Stale port forwards section — always available for Cambium radios
+        html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
+            <div style="display:flex;gap:0.5rem;align-items:center">
+                <button class="btn" id="staleForwardsBtn" onclick="checkStaleForwards('${esc(ip)}', 'epmp')" 
+                    style="font-size:0.85rem;padding:6px 14px;background:#64748b">Check Stale Port Forwards</button>
+            </div>
+            <div id="staleForwardsResult" style="margin-top:0.5rem"></div>
+        </div>`;
+
         result.innerHTML = html;
         btn.style.display = 'none';
         lastLanData = data;
@@ -565,6 +694,11 @@ async function fetchSnmpCambium(ip, community) {
         // Auto-check TP-Link port forward for Cambium radios
         if (hasTPLink && TPLINK_HX510_ENABLED) {
             checkCambiumPortForward(ip);
+        }
+
+        // Auto-check Mikrotik port forward for Cambium radios
+        if (hasMikrotik && MIKROTIK_ENABLED) {
+            checkMikrotikPortForward(ip);
         }
     } catch(e) {
         result.innerHTML = `<p style="color:#dc2626">Error: ${esc(e.message)}</p>`;
@@ -748,11 +882,14 @@ async function fetchDhcpLeases(ip, sshPort) {
 
         let html = '';
         let hasTPLink = false;
+        let hasMikrotik = false;
+        let tplinkHostname = '';
 
-        // Check leases for TP-Link
+        // Check leases for TP-Link and Mikrotik
         if (data.leases.length > 0) {
             data.leases.forEach(l => {
-                if (l.vendor && (l.vendor.toLowerCase().includes('tp-link') || l.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
+                if (l.vendor && (l.vendor.toLowerCase().includes('tp-link') || l.vendor.toLowerCase().includes('tplink'))) { hasTPLink = true; if (l.hostname) tplinkHostname = l.hostname; }
+                if (l.vendor && (l.vendor.toLowerCase().includes('routerboard') || l.vendor.toLowerCase().includes('mikrotik'))) hasMikrotik = true;
             });
             html += `<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-bottom:1rem">
                 <thead><tr style="background:#f1f5f9;text-align:left">
@@ -777,9 +914,11 @@ async function fetchDhcpLeases(ip, sshPort) {
         }
 
         if (data.arp.length > 0) {
-            // Check ARP for TP-Link too
+            // Check ARP for TP-Link and Mikrotik too (LAN-side only — skip public IPs)
             data.arp.forEach(a => {
-                if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) hasTPLink = true;
+                const isPrivateIp = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(a.ip);
+                if (a.vendor && (a.vendor.toLowerCase().includes('tp-link') || a.vendor.toLowerCase().includes('tplink'))) { hasTPLink = true; if (a.hostname) tplinkHostname = a.hostname; }
+                if (isPrivateIp && a.vendor && (a.vendor.toLowerCase().includes('routerboard') || a.vendor.toLowerCase().includes('mikrotik'))) hasMikrotik = true;
             });
             html += `<div style="margin-top:0.5rem"><strong style="font-size:0.85rem;color:#475569">ARP Table</strong></div>
                 <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-top:0.25rem">
@@ -802,8 +941,11 @@ async function fetchDhcpLeases(ip, sshPort) {
 
         // TP-Link Speed Test buttons if a TP-Link device is detected
         if (hasTPLink) {
+            const isHx510 = tplinkHostname.toLowerCase().includes('hx510');
+            const hx510Warning = (!isHx510 && tplinkHostname) ? `<div style="color:#d97706;font-size:0.8rem;margin-bottom:0.5rem">⚠ This TP-Link device may not be an HX510 (hostname: ${esc(tplinkHostname)})</div>` : (!isHx510 && !tplinkHostname ? `<div style="color:#d97706;font-size:0.8rem;margin-bottom:0.5rem">⚠ This TP-Link device may not be an HX510 (no hostname detected)</div>` : '');
             html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
                 <strong style="font-size:0.85rem;color:#475569">TP-Link HX510</strong>
+                ${hx510Warning}
                 <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
                     <button class="btn" id="tplinkSpeedTestBtn" onclick="runTpLinkSpeedTest('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000;font-weight:600">Speed Test (60s)</button>
                     <button class="btn" id="tplinkHistoryBtn" onclick="fetchTpLinkHistory('${esc(ip)}')" style="font-size:0.85rem;padding:6px 14px;background:#64748b">Speed Test History</button>
@@ -815,6 +957,24 @@ async function fetchDhcpLeases(ip, sshPort) {
             </div>`;
         }
 
+        // Mikrotik (Routerboard) section if detected
+        if (hasMikrotik && MIKROTIK_ENABLED) {
+            html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
+                <strong style="font-size:0.85rem;color:#475569">Mikrotik (Routerboard)</strong>
+                <div id="mikrotikPortFwResult" style="margin-top:0.5rem;font-size:0.85rem;color:#6366f1">Checking port forwards...</div>
+                <div id="mikrotikBtestSection" style="margin-top:0.75rem"></div>
+            </div>`;
+        }
+
+        // Stale port forwards section — always available
+        html += `<div style="margin-top:1rem;padding-top:0.75rem;border-top:1px solid #e5e7eb">
+            <div style="display:flex;gap:0.5rem;align-items:center">
+                <button class="btn" id="staleForwardsBtn" onclick="checkStaleForwards('${esc(ip)}', 'airos')" 
+                    style="font-size:0.85rem;padding:6px 14px;background:#64748b">Check Stale Port Forwards</button>
+            </div>
+            <div id="staleForwardsResult" style="margin-top:0.5rem"></div>
+        </div>`;
+
         result.innerHTML = html;
         btn.style.display = 'none';
         lastLanData = data;
@@ -822,6 +982,11 @@ async function fetchDhcpLeases(ip, sshPort) {
         // Auto-check/create TP-Link port forward if AC2 radio with TP-Link on LAN
         if (hasTPLink && lastDiagData && lastDiagData.aircontrol2 && TPLINK_HX510_ENABLED) {
             checkTplinkPortForward(ip, sshPort);
+        }
+
+        // Auto-check Mikrotik port forward
+        if (hasMikrotik && MIKROTIK_ENABLED) {
+            checkMikrotikPortForward(ip);
         }
     } catch(e) {
         result.innerHTML = `<p style="color:#dc2626">Error: ${esc(e.message)}</p>`;
@@ -1070,9 +1235,11 @@ async function checkCambiumPortForward(radioIp) {
             if (needsReboot) {
                 el.innerHTML = `<span style="color:#dc2626;font-weight:600">⚠ Creating port forward + static DHCP will reboot the radio</span>
                     <span style="color:#666;margin-left:0.5rem">(${esc(data.tplink_vendor)} at ${esc(data.tplink_ip)})</span>
-                    <div style="margin-top:0.5rem">
-                        <button class="btn" onclick="createCambiumPortForward('${esc(radioIp)}', ${data.wan_port})" style="font-size:0.85rem;padding:6px 14px;background:#dc2626">Continue (will reboot)</button>
-                    </div>`;
+                    <div style="margin-top:0.5rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+                        <button class="btn" onclick="createCambiumPortForward('${esc(radioIp)}', ${data.wan_port})" style="font-size:0.85rem;padding:6px 14px;background:#dc2626">Port Forward + Static DHCP (will reboot)</button>
+                        <button class="btn" onclick="createCambiumPortForward('${esc(radioIp)}', ${data.wan_port}, true)" style="font-size:0.85rem;padding:6px 14px;background:#f59e0b;color:#000">Port Forward Only (no reboot)</button>
+                    </div>
+                    <div style="margin-top:0.25rem;font-size:0.8rem;color:#666">Port forward only: IP may change after power cut if no static DHCP</div>`;
             } else {
                 el.innerHTML = `<span style="color:#f59e0b">Creating port forward (WAN:${data.wan_port} → ${esc(data.tplink_ip)}:443)...</span>`;
                 createCambiumPortForward(radioIp, data.wan_port);
@@ -1091,14 +1258,16 @@ async function checkCambiumPortForward(radioIp) {
     }
 }
 
-async function createCambiumPortForward(radioIp, wanPort) {
+async function createCambiumPortForward(radioIp, wanPort, skipStatic) {
     const el = document.getElementById('tplinkPortFwResult');
 
     try {
+        let body = `action=create&wan_port=${wanPort}`;
+        if (skipStatic) body += '&skip_static=1';
         const resp = await fetch(`/tplink-HX510-helpers/cambium_portforward.php?ip=${encodeURIComponent(radioIp)}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: `action=create&wan_port=${wanPort}`
+            body: body
         });
         const data = await resp.json();
 
@@ -1107,6 +1276,8 @@ async function createCambiumPortForward(radioIp, wanPort) {
                 <a href="${esc(data.url)}" target="_blank" class="btn" style="font-size:0.85rem;padding:6px 14px;background:#16a34a;text-decoration:none;margin-left:0.5rem">Web Access</a>`;
             if (data.made_dhcp_static) {
                 msg += `<span style="color:#666;margin-left:0.5rem">(DHCP lease made static)</span>`;
+            } else if (data.skipped_static) {
+                msg += `<span style="color:#f59e0b;margin-left:0.5rem">(No static DHCP — IP may change)</span>`;
             }
             el.innerHTML = msg;
         } else if (data.status === 'port_conflict') {
@@ -1152,6 +1323,357 @@ async function makeStaticLease(radioIp, sshPort) {
         el.innerHTML = `<span style="color:#dc2626">Failed: ${esc(e.message)}</span>`;
     }
 }
+
+// --- Mikrotik (Routerboard) Port Forward & Bandwidth Test ---
+async function checkMikrotikPortForward(radioIp) {
+    const el = document.getElementById('mikrotikPortFwResult');
+    if (!el) return;
+
+    // Determine radio type from diagnostic data
+    const radioType = (lastDiagData && lastDiagData.aircontrol2) ? 'airos' : 'epmp';
+
+    try {
+        const resp = await fetch(`mikrotik_lan.php?ip=${encodeURIComponent(radioIp)}&action=check&radio_type=${radioType}`);
+        const data = await resp.json();
+
+        if (data.error) {
+            // SSH to radio failed (likely AirOS, not ePMP) — still show Mikrotik detected info
+            el.innerHTML = `<span style="color:#666;font-size:0.85rem">Port forward check not available for this radio type</span>`;
+            // Still show btest button if we have an SSH forward to the Mikrotik
+            const btestSection = document.getElementById('mikrotikBtestSection');
+            if (btestSection) {
+                btestSection.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+                    <button class="btn" id="mikrotikBtestBtn" onclick="runMikrotikBtest('${esc(radioIp)}', '192.168.5.2')" 
+                        style="font-size:0.85rem;padding:6px 14px;background:#059669;color:#fff;font-weight:600">Bandwidth Test (10s×2)</button>
+                    <span id="mikrotikBtestStatus" style="font-size:0.85rem;color:#6366f1;font-weight:500"></span>
+                </div>
+                <div id="mikrotikBtestResult" style="margin-top:0.75rem"></div>`;
+            }
+            return;
+        }
+
+        if (!data.mikrotik_found) {
+            // Hide the entire Mikrotik section if no device found
+            const mkSection = el.closest('div[style]');
+            if (mkSection) mkSection.style.display = 'none';
+            return;
+        }
+
+        let statusHtml = '';
+        const mkIp = data.mikrotik_ip || '192.168.5.2';
+        const mkMac = data.mikrotik_mac || '';
+
+        // Winbox forward status
+        if (data.has_winbox_forward) {
+            statusHtml += `<span style="color:#16a34a">✓ Winbox (8291)</span> `;
+        } else {
+            statusHtml += `<span style="color:#f59e0b">⚠ No Winbox forward</span> `;
+        }
+
+        // SSH forward status
+        if (data.has_ssh_forward) {
+            statusHtml += `<span style="color:#16a34a;margin-left:1rem">✓ SSH (2022→22)</span> `;
+        } else {
+            statusHtml += `<span style="color:#f59e0b;margin-left:1rem">⚠ No SSH forward</span> `;
+        }
+
+        // Static lease status
+        if (data.has_static_lease) {
+            statusHtml += `<span style="color:#16a34a;margin-left:1rem">✓ Static DHCP</span>`;
+        } else {
+            statusHtml += `<span style="color:#f59e0b;margin-left:1rem">⚠ No static lease</span>`;
+        }
+
+        statusHtml += `<span style="color:#666;margin-left:1rem">(${esc(mkIp)} via ${esc(data.detection_method || 'arp')})</span>`;
+
+        // Setup button if anything is missing
+        if (!data.has_winbox_forward || !data.has_ssh_forward || !data.has_static_lease) {
+            statusHtml += `<div style="margin-top:0.5rem">
+                <button class="btn" onclick="setupMikrotikForwards('${esc(radioIp)}', '${esc(mkIp)}', '${esc(mkMac)}')" 
+                    style="font-size:0.85rem;padding:6px 14px;background:#7c3aed">Setup Port Forwards</button>
+            </div>`;
+        }
+
+        el.innerHTML = statusHtml;
+
+        // Show btest button
+        const btestSection = document.getElementById('mikrotikBtestSection');
+        if (btestSection) {
+            btestSection.innerHTML = `<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+                <button class="btn" id="mikrotikBtestBtn" onclick="runMikrotikBtest('${esc(radioIp)}', '${esc(mkIp)}')" 
+                    style="font-size:0.85rem;padding:6px 14px;background:#059669;color:#fff;font-weight:600">Bandwidth Test (10s×2)</button>
+                <span id="mikrotikBtestStatus" style="font-size:0.85rem;color:#6366f1;font-weight:500"></span>
+            </div>
+            <div id="mikrotikBtestResult" style="margin-top:0.75rem"></div>`;
+        }
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Check failed: ${esc(e.message)}</span>`;
+    }
+}
+
+async function setupMikrotikForwards(radioIp, mikrotikIp, mikrotikMac) {
+    const el = document.getElementById('mikrotikPortFwResult');
+    el.innerHTML = `<span style="color:#6366f1">Setting up port forwards and static lease...</span>`;
+    const radioType = (lastDiagData && lastDiagData.aircontrol2) ? 'airos' : 'epmp';
+
+    try {
+        const resp = await fetch(`mikrotik_lan.php?ip=${encodeURIComponent(radioIp)}&action=setup&radio_type=${radioType}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mikrotik_ip: mikrotikIp, mikrotik_mac: mikrotikMac})
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            el.innerHTML = `<span style="color:#dc2626">${esc(data.error)}</span>`;
+            return;
+        }
+
+        let html = `<span style="color:#16a34a">✓ Setup complete</span>`;
+        if (data.actions && data.actions.length > 0) {
+            html += `<ul style="margin:0.5rem 0 0 1rem;font-size:0.8rem;color:#475569">`;
+            data.actions.forEach(a => { html += `<li>${esc(a)}</li>`; });
+            html += `</ul>`;
+        }
+        el.innerHTML = html;
+
+        // Re-check status after setup
+        setTimeout(() => checkMikrotikPortForward(radioIp), 2000);
+    } catch(e) {
+        el.innerHTML = `<span style="color:#dc2626">Setup failed: ${esc(e.message)}</span>`;
+    }
+}
+
+async function runMikrotikBtest(radioIp, mikrotikIp) {
+    const btn = document.getElementById('mikrotikBtestBtn');
+    const status = document.getElementById('mikrotikBtestStatus');
+    const resultDiv = document.getElementById('mikrotikBtestResult');
+
+    btn.disabled = true;
+    status.textContent = 'Connecting to Mikrotik...';
+    status.style.color = '#6366f1';
+    resultDiv.innerHTML = '';
+
+    try {
+        const resp = await fetch(`mikrotik_lan.php?ip=${encodeURIComponent(radioIp)}&action=btest`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mikrotik_ip: mikrotikIp})
+        });
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalData = null;
+
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, {stream: true});
+
+            // Parse SSE events from buffer
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line in buffer
+
+            let eventType = '';
+            let eventData = '';
+            for (const line of lines) {
+                if (line.startsWith('event: ')) {
+                    eventType = line.slice(7);
+                } else if (line.startsWith('data: ')) {
+                    eventData = line.slice(6);
+                } else if (line === '' && eventType && eventData) {
+                    // Process complete event
+                    try {
+                        const data = JSON.parse(eventData);
+                        if (eventType === 'progress') {
+                            status.textContent = data.message;
+                            status.style.color = '#6366f1';
+                            // Show partial results as they come in
+                            if (data.download) {
+                                resultDiv.innerHTML = `<div class="grid" style="margin-top:0.5rem">
+                                    ${gi('Download', data.download.avg_mbps + ' Mbps (avg)', data.download.avg_mbps > 0 ? 'val-good' : 'val-bad')}
+                                </div>`;
+                            }
+                        } else if (eventType === 'error') {
+                            status.textContent = data.message;
+                            status.style.color = '#dc2626';
+                        } else if (eventType === 'done') {
+                            finalData = data;
+                        }
+                    } catch(e) {}
+                    eventType = '';
+                    eventData = '';
+                }
+            }
+        }
+
+        if (finalData) {
+            if (finalData.success) {
+                status.textContent = 'Complete';
+                status.style.color = '#16a34a';
+                const dl = finalData.download;
+                const ul = finalData.upload;
+                resultDiv.innerHTML = `<div class="grid" style="margin-top:0.5rem">
+                    ${gi('Download', dl ? dl.avg_mbps + ' Mbps (avg)' : '-', dl && dl.avg_mbps > 0 ? 'val-good' : 'val-bad')}
+                    ${gi('Upload', ul ? ul.avg_mbps + ' Mbps (avg)' : '-', ul && ul.avg_mbps > 0 ? 'val-good' : 'val-bad')}
+                    ${gi('DL Status', dl ? dl.status : '-')}
+                    ${gi('UL Status', ul ? ul.status : '-')}
+                    ${gi('Server', finalData.btest_server || '-')}
+                    ${gi('Duration', (finalData.duration || 10) + 's per direction')}
+                </div>`;
+            } else if (!finalData.success && finalData.download) {
+                status.textContent = 'Upload failed (download completed)';
+                status.style.color = '#d97706';
+                const dl = finalData.download;
+                resultDiv.innerHTML = `<div class="grid" style="margin-top:0.5rem">
+                    ${gi('Download', dl ? dl.avg_mbps + ' Mbps (avg)' : '-', dl && dl.avg_mbps > 0 ? 'val-good' : 'val-bad')}
+                    ${gi('Upload', 'Failed', 'val-bad')}
+                </div>`;
+            }
+        }
+    } catch(e) {
+        status.textContent = 'Failed: ' + e.message;
+        status.style.color = '#dc2626';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Bandwidth Test (10s×2)';
+}
+
+// --- Stale Port Forward Detection ---
+async function checkStaleForwards(radioIp, radioType) {
+    const btn = document.getElementById('staleForwardsBtn');
+    const resultDiv = document.getElementById('staleForwardsResult');
+    btn.disabled = true;
+    btn.textContent = 'Checking...';
+    resultDiv.innerHTML = '<span style="color:#6366f1;font-size:0.85rem">Checking port forwards (pinging LAN IPs from radio)...</span>';
+
+    try {
+        const resp = await fetch(`stale_forwards.php?ip=${encodeURIComponent(radioIp)}&action=check&radio_type=${encodeURIComponent(radioType || '')}`);
+        const data = await resp.json();
+
+        if (data.error) {
+            resultDiv.innerHTML = `<span style="color:#dc2626;font-size:0.85rem">${esc(data.error)}</span>`;
+            btn.disabled = false;
+            btn.textContent = 'Check Stale Forwards';
+            return;
+        }
+
+        if (data.stale_count === 0) {
+            resultDiv.innerHTML = `<span style="color:#16a34a;font-size:0.85rem">✓ All ${data.total_forwards} port forward(s) have reachable LAN targets</span>`;
+            btn.disabled = false;
+            btn.textContent = 'Check Stale Forwards';
+            return;
+        }
+
+        // Show stale forwards with delete option
+        let html = `<div style="font-size:0.85rem;margin-bottom:0.5rem">
+            <span style="color:#dc2626;font-weight:600">⚠ ${data.stale_count} stale port forward(s) found</span>
+            <span style="color:#666"> (LAN IP unreachable via ARP + ping)</span>
+        </div>`;
+
+        html += `<table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+            <thead><tr style="background:#fef2f2;text-align:left">
+                ${data.can_delete ? '<th style="padding:6px 8px"><input type="checkbox" id="staleSelectAll" onchange="toggleStaleAll(this)"></th>' : ''}
+                <th style="padding:6px 8px">LAN IP</th>
+                <th style="padding:6px 8px">WAN Port</th>
+                <th style="padding:6px 8px">LAN Port</th>
+                <th style="padding:6px 8px">Protocol</th>
+            </tr></thead><tbody>`;
+
+        data.stale_forwards.forEach(fwd => {
+            const proto = fwd.protocol === 1 ? 'UDP' : fwd.protocol === 2 ? 'TCP' : fwd.protocol === 3 ? 'TCP+UDP' : (fwd.protocol || '?');
+            html += `<tr style="border-bottom:1px solid #e5e7eb">
+                ${data.can_delete ? `<td style="padding:5px 8px"><input type="checkbox" class="stale-cb" value="${fwd.index}"></td>` : ''}
+                <td style="padding:5px 8px;color:#dc2626">${esc(fwd.lan_ip || fwd.host || '-')}</td>
+                <td style="padding:5px 8px">${fwd.wan_port_begin || fwd.dport || '-'}</td>
+                <td style="padding:5px 8px">${fwd.lan_port || fwd.port || '-'}</td>
+                <td style="padding:5px 8px">${proto}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+
+        if (data.can_delete) {
+            html += `<div style="margin-top:0.5rem">
+                <button class="btn" id="deleteStaleBtn" onclick="deleteStaleForwards('${esc(radioIp)}', '${data.radio_type}')" 
+                    style="font-size:0.85rem;padding:6px 14px;background:#dc2626">Delete Selected</button>
+                <span id="staleDeleteStatus" style="font-size:0.85rem;margin-left:0.5rem"></span>
+            </div>`;
+        } else {
+            html += `<div style="margin-top:0.5rem;font-size:0.85rem">
+                <span style="color:#666">Automatic deletion not supported on ePMP. Delete via web UI:</span>
+                <a href="https://${esc(radioIp)}:${CAMBIUM_WEB_PORT}" target="_blank" class="btn" style="font-size:0.85rem;padding:4px 12px;background:#2563eb;text-decoration:none;margin-left:0.5rem">Open Radio UI</a>
+            </div>`;
+        }
+
+        resultDiv.innerHTML = html;
+    } catch(e) {
+        resultDiv.innerHTML = `<span style="color:#dc2626;font-size:0.85rem">Check failed: ${esc(e.message)}</span>`;
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Check Stale Forwards';
+}
+
+function toggleStaleAll(masterCb) {
+    document.querySelectorAll('.stale-cb').forEach(cb => { cb.checked = masterCb.checked; });
+}
+
+async function deleteStaleForwards(radioIp, radioType) {
+    const checkboxes = document.querySelectorAll('.stale-cb:checked');
+    const indices = Array.from(checkboxes).map(cb => parseInt(cb.value));
+    const statusEl = document.getElementById('staleDeleteStatus');
+
+    if (indices.length === 0) {
+        statusEl.textContent = 'Select at least one forward to delete';
+        statusEl.style.color = '#d97706';
+        return;
+    }
+
+    if (!confirm(`Delete ${indices.length} port forward(s)?\n\nThe radio will apply changes (may take a few seconds).\n\nProceed?`)) {
+        return;
+    }
+
+    const btn = document.getElementById('deleteStaleBtn');
+    btn.disabled = true;
+    statusEl.textContent = 'Deleting...';
+    statusEl.style.color = '#6366f1';
+
+    try {
+        const resp = await fetch(`stale_forwards.php?ip=${encodeURIComponent(radioIp)}&action=delete&radio_type=${encodeURIComponent(radioType)}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({indices: indices})
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = data.error;
+            statusEl.style.color = '#dc2626';
+        } else {
+            statusEl.textContent = data.message;
+            statusEl.style.color = '#16a34a';
+            // Re-check after a moment
+            setTimeout(() => checkStaleForwards(radioIp), 5000);
+        }
+    } catch(e) {
+        statusEl.textContent = 'Delete failed: ' + e.message;
+        statusEl.style.color = '#dc2626';
+    }
+
+    btn.disabled = false;
+}
+
+// Auto-search if ?ip= parameter is provided in URL
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    const ip = params.get('ip');
+    if (ip) {
+        document.getElementById('searchInput').value = ip;
+        doSearch();
+    }
+})();
 </script>
 </body>
 </html>

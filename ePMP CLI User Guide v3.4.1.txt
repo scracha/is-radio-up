@@ -1,0 +1,769 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ePMP Command Line Interface User Manual
+Firmware version 3.4.1
+
+
+
+Table of Contents
+1 Introduction	3
+1.1 Purpose	3
+1.2 Command Line Access	3
+1.3 Command usage syntax	3
+1.4 Basic information	3
+1.4.1 Context sensitive help	3
+1.4.2 Auto-completion	3
+1.4.3 Movement keys	3
+1.4.4 Deletion keys	4
+1.4.5 Escape sequences	4
+2 Command Line Interface Overview	5
+2.1 Reference list of commands	5
+3 Configuration	8
+3.1 Example 1: Changing device IP address in Bridge mode	8
+3.2 Example 2: Creating/Modifying MIR Profile	8
+4 Reference list of Configuration parameters	9
+
+
+
+
+
+This document describes basic usage of ePMP Command Line Interface.
+
+Access to command line is provided via SSH protocol version 2. To access CLI you can use the following identity:
+• ADMINISTRATOR (default username/password “admin”), who has full read and write permission.
+
+For every command in this document you can find a usage syntax. In command usage syntax, anything in a normal text font is required text. Anything in a boldface font is a flag or a subcommand. Anything underlined is a user-specified argument such as a filename.
+Any argument surrounded by brackets is considered to be optional. For example, [ filename ] would indicate an optional filename argument.
+Anything in angle brackets < > means the option is required.
+
+
+To display the context sensitive help you can use the question mark sign on your keyboard - [?]. Help will provide you either a list of possible command completions with summaries, or the full syntax of the current command. A subsequent repeat of this key, when a command has been resolved, will display a detailed reference.
+
+The following keys both perform auto-completion for the current command line. If the command prefix is not unique then the bell will ring and a subsequent repeat of the key will display possible completions.
+[enter] - Auto-completes, syntax-checks then executes a command. If there is a syntax error then offending part of the command line will be highlighted and explained.
+[space] - Auto-completes, or if the command is already resolved inserts a space.
+
+[CTRL-A] - Move to the start of the line
+[CTRL-E] - Move to the end of the line.
+[up]	- Move to the previous command line held in history.
+
+
+
+[down] - Move to the next command line held in history. [left] - Move the insertion point left one character. [right] - Move the insertion point right one character.
+
+[CTRL-C] - Delete and abort the current line [CTRL-D] -Close current SSH session.
+[CTRL-K] - Delete all the characters to the right of the insertion point. [CTRL-U] - Delete the whole line.
+[backspace] - Delete the character to the left of the insertion point.
+
+
+!! - Substitute the last command line.
+!N - Substitute the Nth command line (absolute as per 'history' command)
+!-N - Substitute the command line entered N lines before (relative)
+
+
+
+
+
+CommandDescriptionconfig applyApply configurationconfig import <url>Import JSON configuration file from <url>config import errorsShow JSON configuration import errorsconfig saveSave configurationconfig set | <string>Show configuration parameters available containing <string>config set <parameter>Show help for <parameter>config set <parameter> <value>Set <parameter> with <value>config set <table> <row> <parameter>
+<value>Set <parameter> with <value> inside <table>,
+row <row>config show
+config show jsonShow running configuration
+Show running configuration in JSON formatconfig show | <string>Show running configuration with name
+containing<string>config show dumpShow running configuration as a list of “config
+set” commandsconfig show changesShow changes pending to be appliedexitExit shellhistory [num]Show last [num] commandslinktest <mac> [-t time] [-s size] [-f force antenna]Run link test for specific <mac> and time/packet
+size.
+The following options are available for controlling the antenna usage during the link test:
+0 - Auto,
+1 - Force Sector Antenna,
+2 - Force Smart AntennapasswdChange passwordping <ip> [-c n] [-s size]Ping
+rebootRebootshow acsShow ACSshow apShow list of APshow arpShow ARP tableshow bridge apShow bridge on APshow bridge smShow bridge on STAshow configAlias for “config show”show dashboardShow information available on WEB-Interface dashboardshow ethernetShow Ethernet statistics countersshow gpssatShow information for GPS Satellitesshow edetectShow eDetect informationshow ealignShow eAlign informationshow ipShow IP addressesshow netstatShow TCP and UDP connectionsshow rssi [n]Show RSSI per channelshow staShow list of stationsshow syslogShow system logshow wirelessShow wireless statistics counterssnmp get [-v version] [-c community]
+<ip> <oid>SNMP getsnmp set [-v version] [-c community]
+<ip> <oid> <t> <v>SNMP set
+
+Example:
+snmp set -v 2c -c private 192.168.0.1 wirelessStaIsolate.0 i 1snmp walk [-v version] [-c community]
+<ip> <oid>SNMP walktcpdump <parameters>Tcpdump
+Note: Use quotes to pass multiple parameters to tcpdump
+Example:
+tcpdump "-i eth0 –e vlan and ip
+multicast"
+
+tcpdump dump <parameters>
+Dump pcap filetcpdump showList saved pcap filestcpdump deleteDelete saved pcap filestraceroute <ip>traceroute
+
+
+In order to configure ePMP via command line interface there is a subset of “config” commands:
+CommandDescriptionconfig applyApply configurationconfig saveSave configurationconfig set <parameter>Show help for <parameter>config set <parameter> <value>Set <parameter> with <value>config set <parameter> " "Delete parameter from configurationconfig set <table> <row> <parameter>
+<value>Set <parameter> with <value> inside
+<table>, row <row>config showShow running configurationconfig show dumpShow running configuration as a list of
+“config set” commandsconfig show changesShow changes pending to be appliedConfiguration parameter names are compatible with the names used in “cambiumpmp80211SystemConfiguration” tree of SNMP Management Information Base (MIB) file, which is available for download from the Cambium Networks Support website (https://support.cambiumnetworks.com/files/epmp).
+
+In order to change device IP address in bridge mode the following commands should be used:
+>config set networkBridgeIPAddr 192.168.0.100
+>config save
+>config apply
+
+In order to create or modify existing first MIR profile the following commands should be used:
+>config set wirelessMIRProfileTable 1 wirelessMIRProfileNumber 1
+>config set wirelessMIRProfileTable 1 wirelessMIRProfileDescription 10Mbps
+>config set wirelessMIRProfileTable 1 wirelessDLMIR 10000
+>config set wirelessMIRProfileTable 1 wirelessULMIR 1000
+>config save
+>config apply
+
+
+4	REFERENCE LIST OF CONFIGURATION PARAMETERSNameDescriptioncambiumSystemLogsyslogServerIPFirst"Syslog Server IP Address 1
+Device Allocation:AP, SM"syslogServerIPSecond"Syslog Server IP Address 2
+Device Allocation:AP, SM"syslogServerIPThird"Syslog Server IP Address 3
+Device Allocation:AP, SM"syslogServerIPFourth"Syslog Server IP Address 4
+Device Allocation:AP, SM"syslogServerLogToWeb"Enable Log to WEB Interface:
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"syslogServerLogMask"Log Level Mask:
+0 - all messages,
+1 - emerg,
+2 - alert,
+4 - crit,
+8 - err,
+16 - warning,
+32 - notice,
+64 - info,
+128 - debug
+Device Allocation:AP, SM"cambiumDHCPdhcpLanEnable"Local DHCP Server Enable:
+0 - Disable
+1 - Enable
+Device Allocation:SM"dhcpLanStart"Local DHCP Server IP Start Address
+Offset from the Network address. Device Allocation:SM"dhcpLanLimit"Local DHCP Server IP End Address
+Offset from the Network address. Device Allocation:SM"dhcpLanLeasetime"Local DHCP Lease Setup in hours
+Valid Range:1 hour - 24 hours
+Device Allocation:SM"dhcpLanHostTable"Table for DHCP Hosts
+Device Allocation:SM"dhcpLanHostEntry"DHCP Hosts Table Entry
+Device Allocation:SM"dhcpLanHostIndex"DHCP host Table Index
+Table Entry is cleared if Index is set to zero
+Device Allocation:SM"dhcpLanHostIP"DHCP Lan Host IP
+'ignore' or the IP address to be used for DHCP host Device Allocation:SM"
+
+dhcpLanHostMAC"The hardware address of this host
+Device Allocation:SM"dhcpLanHostName"Optional hostname to assign
+Device Allocation:SM"dhcpOption82"DHCP Option82:
+0 - Disable
+1 - Enable
+Device Allocation:AP"cambiumSSHServercambiumSSHServerEnable"Cambium SSH Server:
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"networknetworkLannetworkLanIPAddressMode"SM NAT LAN IP Address Mode
+1 - Static,
+2 - DHCP
+Device Allocation:AP, SM"networkLanIPAddr"SM NAT LAN IP Address
+Device Allocation:SM"networkLanNetmask"SM NAT LAN IP Subnet Mask
+Device Allocation:SM"networkLanGatewayIP"SM NAT LAN Gateway IP Address
+Device Allocation:SM"networkLanDNSIPAddr"SM NAT LAN DNS Server IP Address
+Device Allocation:SM"networkLanMTU"SM NAT LAN MTU size
+Device Allocation:SM"networkLanDNSIPAddrPrimary"SM NAT LAN DNS Server IP Address
+Device Allocation:SM
+Primary Server IP"networkLanDNSIPAddrSecondary"SM NAT LAN DNS Server IP Address
+Device Allocation:SM
+Secondary Server IP"networkLanAutoNegotiation"Lan Autonegotiation
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"networkLanSpeed"LAN Speed
+10 - 10 Mb/s,
+100 - 100 Mb/s,
+1000 - 1000 Mb/s
+Device Allocation:AP, SM"networkLanDuplex"LAN Duplex Mode
+0 - Half,
+1 - Full
+Device Allocation:AP, SM"networkBroadcastStormEnabled"Broadcast Strom Control
+0 - Disabled,
+1 - Enabled
+
+Device Allocation:AP, SM"networkBroadcastStormRate"Broadcast Strom Control Rate
+in frames per second
+Device Allocation:AP, SM"networkLan2Enabled"AUX Lan Port Enabled
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"networkLan2AutoNegotiation"Lan Autonegotiation
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"networkLan2Speed"LAN Speed
+10 - 10 Mb/s,
+100 - 100 Mb/s,
+Device Allocation:AP, SM"networkLan2Duplex"LAN Duplex Mode
+0 - Half,
+1 - Full
+Device Allocation:AP, SM"networkLan2PoEEnabled"PoE Enabled
+0 - Disabled,
+1 - Enabled
+Device Allocation:SM"networkLanDefaultIPDefault Network IP
+Device Allocation:AP, SMdlkmNATSIPHelpersEnables Auxiliary Netfilter NAT SIP Helper modules
+support:
+0 - Disable,
+1 - Enabled
+Device Allocation:AP, SMstaticRoutesEnableMainStatic Routes trigger
+0 - Disable
+1 - EnablemgmtIFmgmtIFEnableSeparate Management Interface Enabled:
+0 - Disabled,
+1 - Enabled
+Device Allocation:SMmgmtIFVLANSeparate Management Interface VLAN Enabled:
+0 - Disabled,
+1 - Enabled
+Device Allocation:SMmgmtIFVIDSeparate Management Interface VLAN
+Device Allocation:SMmgmtIFVPSeparate Management Interface VP
+Device Allocation:SMmgmtIFIPAddressModeSeparate Management IP Address Mode
+1 - Static,
+2 - DHCP
+Device Allocation:SM
+
+mgmtIFIPAddrSeparate Management IP Address
+Device Allocation:SMmgmtIFNetmaskSeparate Management IP Subnet Mask
+Device Allocation:SMmgmtIFGatewaySeparate Management IP Gateway
+Device Allocation:SMnetworkWannetworkWanIPAddressMode"SM NAT WAN IP Address Mode
+1 - Static,
+2 - DHCP
+Device Allocation:SM"networkWanIPAddr"SM NAT WAN IP Address
+Device Allocation:SM"networkWanNetmask"SM NAT WAN IP Subnet Mask
+Device Allocation:SM"networkWanGatewayIP"SM NAT WAN Gateway IP Address
+Device Allocation:SM"networkWanDNSIPAddr"SM NAT WAN DNS Server IP Address
+Device Allocation:SM"networkWanMTU"SM NAT WAN MTU size
+Device Allocation:SM"networkWanDNSIPAddrPrimary"SM NAT WAN DNS Server IP Address
+Device Allocation:SM
+Primary Server IP"networkWanDNSIPAddrSecondary"SM NAT WAN DNS Server IP Address
+Device Allocation:SM Secondary Server IP"networkWanPPPoE"SM only.Enable or Disable PPPoE
+mode. 1 is enable 0 is disable"networkWanPPPoEUsername"SM only.Username to authenticate with
+PPPoE Server"networkWanPPPoEPassword"SM only.Password to authenticate with
+PPPoE Server"networkWanPPPoEAC"SM only.PPPoE Access Concentrator Name"networkWanPPPoEService"SM only.PPPoE Service Name"networkWanPPPoEAuth"SM only.This indicates type of authentication
+with PPPoE Server. Options are
+0 - All
+1 - PAP
+2 - CHAP"networkWanPPPoEMTU"SM only.MTU size to be used for PPPoE
+connection"networkWanPPPoEKeepAlive"SM only.Time in seconds for the keep Alive
+messages from PPPoE client to PPPoE Server"networkWanPPPoEMSSClamping"SM only.Enable or disable MSS Clamping
+0 - Disable
+1 - Enable"networkWanIPv6AddressModeSM NAT WAN IPv6 Address Mode
+1 - Static,
+2 - DHCPv6
+
+Device Allocation:SMmgmtVLANmgmtVLANEnable"Management VLANs State:
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"mgmtVLANVID"Management VLAN ID
+Device Allocation:AP, SM"mgmtVLANVP"Management VLAN VP
+Device Allocation:AP, SM"dataVLANdataVLANEnable"Data VLANs State:
+0 - Disable,
+1 - Enable
+Device Allocation:SM"dataVLANVID"Data VLAN ID
+Device Allocation:SM"dataVLANVP"Data VLAN VP
+Device Allocation:SM"mcastVLANmcastVLANEnable"Multicast VLAN State:
+0 - Disable,
+1 - Enable
+Device Allocation:SM"mcastVLANVID"Multicast VLAN ID
+Device Allocation:SM"mcastVLANVP"Multicast VLAN VP
+Device Allocation:SM"networkBridgenetworkBridgeIPAddressMode"Device Bridge IP Address Mode
+1 - Static,
+2 - DHCP
+Device Allocation:AP, SM"networkBridgeIPAddr"Device Bridge IP Address
+Device Allocation:AP, SM"networkBridgeNetmask"Device Bridge IP Subnet Mask
+Device Allocation:AP, SM"networkBridgeGatewayIP"Device Bridge Gateway IP Address
+Device Allocation:AP, SM"networkBridgeDNSIPAddr"Device Bridge DNS Server IP Address
+Device Allocation:AP, SM"networkBridgeMTU"Device Bridge MTU size
+Device Allocation:AP, SM"networkBridgeDNSIPAddrPrimary"Device Bridge DNS Server IP Address
+Device Allocation:AP, SM
+Primary Server IP"networkBridgeDNSIPAddrSecondary"Device Bridge DNS Server IP Address
+Device Allocation:AP, SM
+Secondary Server IP"networkMode"SM Network Mode:
+
+1 - NAT,
+2 - Bridge,
+3 - Router
+Device Allocation:SM"networkSTP"Spanning Tree Protocol:
+0 - Disable STP (Default mode)
+1 - Enable STP
+Device Allocation:AP, SM"networkPortSecurity"LAN Port Security switch:
+0 - Disable
+1 - Enable
+Device Allocation:SM"networkPortSecurityMax"Number of secure MAC addresses:
+1-254 - Fixed Learned MAC limit
+Device Allocation:SM"networkPortSecurityAgingTime"Security MAC address aging time:
+This prameter indicates on how long to store learned
+MAC address in the cache in seconds,
+0 - do not delete MAC address from the buffer, Default - is 300 seconds.
+Device Allocation:AP, SM"mcastGroupLimit"Multicast Group Limit:
+Default - is 3 Multicast Groups.
+Device Allocation:SM"snmpsnmpReadOnlyCommunity"SNMP read-only community name
+Device Allocation:AP, SM"snmpReadWriteCommunity"SNMP read-write community name
+Device Allocation:AP, SM"snmpSystemName"SNMP System Name
+Device Allocation:AP, SM"snmpSystemDescription"SNMP System Description
+Device Allocation:AP, SM"snmpTrapEnable"SNMP Trap Support Enable
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"snmpTrapCommunity"SNMP Trap Community
+Device Allocation:AP, SM"snmpTrapTable"SNMP Trap Servers Table
+Device Allocation:AP, SM"snmpTrapEntry"SNMP Trap Table Entry
+Device Allocation:AP, SM"snmpTrapEntryIndex"SNMP Trap Server IP Table Index
+Table Entry is cleared if Index is set to zero
+Device Allocation:AP, SM"snmpTrapEntryIP"SNMP Trap Server IP Address
+Device Allocation:AP, SM"snmpTrapEntryPort"SNMP Trap Server Port Number
+Device Allocation:AP, SM"snmpDomainAccessEnable"SNMP Access Domain Enable
+
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SM"snmpDomainAccessIP"SNMP Access Domain IP Address
+Device Allocation:AP, SM"snmpDomainAccessIPMask"SNMP Access Domain IP Mask
+Device Allocation:AP, SM"cambiumSystemsystemConfigsystemConfigTimezone"Time Zone
+Device Allocation:AP, SM"systemConfigDeviceName"SM Device Name
+Device Allocation:AP, SM"systemConfigETSILicense"ETSI Country Code.
+Set the country code using license key on AP. Visit Cambium Webserver
+to get the license key. The country code set in license key will
+be used to set country code on AP if the key validation pass. This
+parameter is for AP only.
+Device Allocation:AP"systemDeviceLocLatitude"Device GPS Location Latitude.
+Coordinates of device in (h ddd.ddddd) format. Used to display location at Google Maps service. Device Allocation:AP, SM"systemDeviceLocLongitude"Device GPS Location Longitude.
+Coordinates of device in (h ddd.ddddd) format. Used to display location at Google Maps service. Device Allocation:AP, SM"systemDeviceLocHeight"Device GPS Location Longitude.
+Altitude of device above/below mean sea level. Device Allocation:AP, SM"cambiumTelnetServerEnableCambium Telnet Server:
+0 - Disable,
+1 - Enable
+Device Allocation:AP, SMnetworkMACTELNETEnable MAC-Telnet Service
+0 - Disable,
+1 - Enable
+Device Allocation:AP,SMnetworkMACTELNETProtoMAC-Telnet Service Protocol
+1 - MAC-Telnet
+2 - MAC-SSH
+Device Allocation:AP,SMnetworkNATPMPEnable NAT-PMP on SM in NAT mode
+0 - Disable,
+1 - Enable
+Device Allocation:SMsystemConfigFactoryResetKeepPwdKeep Passwords after Factory Default
+0 - Disabled
+
+1 - Enabled
+Device Allocation:AP, SMsystemConfigIPv6SupportSystemwide IPv6 support. Enables Systemwide IPv6 support:
+0 - IPv6 Support Disabled,
+1 - IPv6 Support Enabled,
+Device Allocation:AP, SMsystemConfigMinAntGainReturn Minimum allowed Antenna Gain.
+Device Allocation:AP, SMsystemNtpServersystemNtpServerIPMode"NTP Server IP Address receive mode
+1 - Static,
+2 - DHCP
+Device Allocation:AP, SM"systemNtpServerPrimaryIP"NTP Server 1 IP Address
+Device Allocation:AP, SM"systemNtpServerSecondaryIP"NTP Server 2 IP Address
+Device Allocation:AP, SM"cambiumWebServerwebService"Web Service
+1 - HTTP,
+2 - HTTPS
+Device Allocation:AP, SM"httpPort"HTTP Port
+Device Allocation:AP, SM"httpsPort"HTTPs Port"wirelesswirelessDevicewirelessDeviceCountryCode"Country Code.
+If US Lock SKU, this is US and cannot be changed. If not locked, for 9350, it will be None, for 9344, it will be Follow AP CC.
+When user change CC at SM, the SM Scan Frequency
+Type will be FA
+Device Allocation:AP"wirelessType"Wireless type:
+1 - tdd driver,
+2 - 80211 (aquila) driver Device Allocation:AP, SM"wirelessDefaultCountryCode"Default Country Code."wirelessAPForcedSectorEnable/Disable Forcing of Sector/Smart Antenna for
+all SMs.
+0 - auto mode (default)
+1 - force sector antenna
+2 - force Smart antenna
+Device Allocation:APwirelessSTAForcedSectorEnable/Disable Forcing of Sector/Smart Antenna for
+current SM.
+0 - auto mode (default)
+1 - force sector antenna
+
+2 - force Smart antenna
+Device Allocation:STAwirelessInterfacewirelessInterfaceMode"Wireless Interface Mode:
+1 for AP,
+2 for SM,
+3 for Spectrum Analyzer
+Device Allocation:AP, SM"wirelessInterfaceSSID"Wireless SSID
+Device Allocation:AP"wirelessInterfaceEncryption"Wireless authentication type:
+1 - Open mode,
+2 - wpa2 mode,
+3 - EAP-TTLS
+Device Allocation:AP"wirelessInterfaceEncryptionKey"Pre-shared authentication key.
+Device Allocation:AP"wirelessInterfaceForceMcastBcast4Addr1 - TRUE
+0 - FALSEwirelessInterfaceRateMinMCSMinimum locked MCS rate.
+Default allocation:AP, SM.wirelessInterfaceHTMode"Frequency Bandwidth
+1 - 20Mhz,
+2 - 40Mhz,
+3 - 10Mhz,
+4 - 5MHz
+Device Allocation:AP"wirelessInterfaceTXPower"TX Power (Board Output Conducted)
+Device Allocation:AP"wirelessInterfaceTDDAntennaGain"Antenna Gain
+Device Allocation:AP, SM"wirelessInterfaceTDDRatio"DL/UL Ratio:
+1 - 75/25,
+2 - 50/50,
+3 - 30/70,
+4 - Flexible
+Device Allocation:AP"wirelessInterfaceTPCTRL"Set/get target receive level (TRL)
+Device Allocation:AP"wirelessInterfaceTPCMode"Power mode selection.
+Values:0 - Disable, 1 - Open Loop, 2 - Close Loop When system is in Fixed mode (75/35, 50/50, 30/70), this parameter can only be Close or Open Loop.
+When system is in Flexible mode, this parameter can be either Close Loop, Open Loop or Disable.
+The default TPC mode is Close Loop.
+Device Allocation:AP"wirelessInterfacePTPMode"PTP Setting
+0 - Off,
+1 - Connect First SM,
+2 - MAC Address Limited
+Device Allocation:AP"wirelessInterfacePTPMACAddress"PTP MAC Address
+Device Allocation:AP"wirelessInterfaceSyncSource"1PPS Sync Source
+1 - GPS,
+2 - CMM,
+3 - Internal Free Run Device Allocation:AP"wirelessInterfaceSyncHoldTime"GPS Sync Hold Time in seconds
+Device Allocation:AP"wirelessInterfaceScanFrequencyListTwenty"Scan Frequency List for 20 MHz
+Device Allocation:SM"wirelessInterfaceScanFrequencyListForty"Scan Frequency List for 40 MHz
+Device Allocation:SM"centerFrequency"Per freq band:5725 GHz for 5G SKU, 2412 for 2.4G
+SKU
+Device Allocation:AP"dfsAlternative1CenterFrequency"Per freq band
+Device Allocation:AP"dfsAlternative2CenterFrequency"Per freq band
+Device Allocation:AP"wirelessMaximumCellSize"Maximum Cell Size in units
+wirelessCellSizeUnit defines the unit type:
+1 - Miles
+2 - Kilometers
+Device Allocation:AP"wirelessCellSizeUnit"Maximum Cell Size units:
+1 - Miles
+2 - Kilometers
+Device Allocation:AP"wirelessMaximumSTA"Maximum Number of SM
+Device Allocation:AP"dfsAlternative1Bandwidth"Frequency Bandwidth
+1 - 20Mhz,
+2 - 40Mhz,
+3 - 10Mhz,
+4 - 5Mhz,
+Device Allocation:AP"dfsAlternative2Bandwidth"Frequency Bandwidth
+1 - 20Mhz,
+2 - 40Mhz,
+3 - 10Mhz,
+4 - 5Mhz,
+Device Allocation:AP"wirelessAcceptableAPRSSIThreshold"AP RSSI Threshold
+Device Allocation:SM"wirelessAcceptableAPCINRThreshold"AP CINR Threshold
+Device Allocation:SM"wirelessInterfaceUnblockUSfreqs"Block US 5.2 and 5.4 bands
+5.2 and 5.4 bands are blocked until DFS certification is acheived
+Device Allocation:AP, SM"wirelessMIREnable"Maximum Information Rate (MIR) Limiting:
+0 - Disable,
+1 - Enable
+Device Allocation:AP"wirelessMIRSTAProfileNumber"Maximum Information Rate (MIR) Limiting Profile
+Number on SM Device Allocation:SM"wirelessMIRAPDefaultProfileNumber"Maximum Information Rate (MIR) Limiting Default
+Profile number on AP
+This Profile Number will be used by AP is SM
+provides improper profile
+Device Allocation:AP"wirelessInterfaceScanFrequencyBandwidth"Frequency Bandwidth as bitmask, fields are:
+1 - 20Mhz,
+2 - 40Mhz,
+4 - 10Mhz,
+8 - 5Mhz
+Device Allocation:SM"wirelessInterfaceGuardInterval"Guard Interval:
+1 - Long GuardInterval,
+2 - Short GuardInterval
+Device Allocation:AP"wirelessInterfaceiFreqReuseMode"Frequency Reuse Mode:
+0 - Off,
+1 - Frequency-Reuse-Front,
+2 - Frequency-Reuse-Back
+Device Allocation:AP"wirelessSTAPriority"SM priority value:
+0 - Normal,
+1 - High,
+2 - Low
+Device Allocation:SM"wirelessSmoothingBit"Smoothing Bit values:
+0 - Bit is cleared, smoothing is off,
+1 - Bit is set, smoothing is on Device Allocation:AP"wirelessSecurityMethod"Allowed types of authentications on SM side
+(Preferred AP list is not set)
+Use bitmask to enable pereferred methods, 0 - means enable method:
+set 0-th bit to 0 - Open method (110b)
+set 1-st bit to 0 - WPA2 method (101b)
+set 2-nd bit to 0 - EAP-TTLS method (011b)
+0x00 - All enabled"wirelessAcceptableAPSNRThreshold"AP CINR Threshold
+Device Allocation:SM"wirelessMgmtPacketRate"Management rate:
+0 - MCS0
+1 - MCS1
+Device Allocation:AP"
+
+wirelessStaIsolate"Enables or disables bridging within the AP driver between SMs.
+0 - Disabled
+1 - Enabled
+Device Allocation:AP"wirelessCcaEnable"Clear Channel Assignment:
+0 - Disable
+1 - Enable
+Device Allocation:AP"wirelessInterfaceScanFrequencyListTen"Scan Frequency List for 10MHz
+Device Allocation:SM"wirelessInterfaceScanFrequencyListFive"Scan Frequency List for 5MHz
+Device Allocation:SM"wirelessMulticastEnhanceMode"Multicast enhancement mode
+0 - Disabled
+3 - IGMP Snooping + MC Passthru
+Device Allocation:AP"wirelessInterfaceProtocolModeProtocol Module Mode:
+1 - TDD
+2 - AP/SM WiFi
+3 - PTP.LL
+4 - TDD PTP
+Device Allocation: AP/SMwirelessClientBridgeModeEnables ARPNAT feature, translates ARP requests
+from Ethernet side of SM to Wireless and vice-versa:
+0 - Disabled
+1 - Enabled
+Device Allocation:SMwirelessInterfaceRateMaxMCSMinimum locked MCS rate.
+Default allocation: AP, SM.wirelessMulticastIgmpFastLeaveMulticast enhancement mode
+0 - IGMP Fast Leave OFF
+1 - IGMP Fast Leave ON Device Allocation:APwirelesInterfaceTDDFrameSizeTDD Frame Duration in microseconds
+2500 - 2.5 ms
+5000 - 5 ms
+Device Allocation:APwirelessInterfaceColocStateCo-location state
+0 - disabled
+1 - FSK co-location
+Device Allocation:APwirelessInterfaceColocSystemSyncSrcCo-location state
+1 - GPS,
+2 - CMM4,
+4 - CMM3
+Device Allocation:APwirelessTXPowerManualLimit"Allow user to limit MAX output TX Power
+Device Allocation:SM"wirelessRateMaxMCSAllow user to set MAX TX rate
+Not allowed for SNMP processing
+Device Allocation:AP, SMapWiFiCompWDSTrBridgeAP Wi-Fi WDS Transparent bridge mode Compatibility mode for Ubiquiti WDS Transparent bridge
+and Mikrotik station WDS
+0 - Disabled,
+1 - Enabled
+Device Allocation:APwirelessMACFilterEnable/Disable MAC list filter
+0 - Disabled,
+1 - Enabled
+Device Allocation:APwirelessMACFilterPolicyPermit/Prevent policy for MAC list
+1 - Prevent
+2 - Permit
+Device Allocation:APapWiFiDLCTSModeForce AP WiFi to enable Self CTS
+0 - Disabled,
+1 - Enabled
+Device Allocation:APapWiFiRTSThresholdWi-Fi interface RTS Threshold
+Device Allocation:AP, SMapWiFiULCTSRTSModeForce AP WiFi to add ERP IE to the Beacon
+0 - Disabled,
+1 - Enabled
+Device Allocation:APwirelessAPWifiWLANmodeAP Wi-Fi WLAN mode (short, 1000m operational distance)
+0 - Disabled,
+1 - Enabled
+Device Allocation:APwirelessPrefListprefferedAPTable"Preffered AP Table
+Device Allocation:SM"prefferedAPEntry"Preffered SSID Table Entry
+Device Allocation:SM"prefferedListTableEntryIndex"Preferred AP Table Index
+Table Entry is cleared if Index is set to zero
+Device Allocation:SM"prefferedListTableEntrySSID"Preferred AP SSID
+Device Allocation:SM"prefferedListTableEntryKEY"Preferred AP Shared Key
+Device Allocation:SM"prefferedListTableSecurityMethod"Authentication modes to connect to AP
+Device Allocation:SM
+Use bitmask to enable pereferred methods, 0 - means enable method:
+set 0-th bit to 0 - Open method (110b)
+set 1-st bit to 0 - WPA2 method (101b)
+set 2-nd bit to 0 - EAP-TTLS method (011b)
+0x00 - All enabled"
+
+wirelessMIRListwirelessMIRProfileTable"Maximum Information Rate (MIR) Limiting profile
+Table
+Device Allocation:AP"wirelessMIRProfileEntry"Maximum Information Rate (MIR) Limiting profile
+Table Entry
+Device Allocation:AP"wirelessMIRProfileIndex"Maximum Information Rate (MIR) Limiting profile
+Number
+Device Allocation:AP"wirelessMIRProfileNumber"Number of MIR profile
+Device Allocation:AP"wirelessMIRProfileDescription"MIR profile description
+Device Allocation:AP"wirelessDLMIR"DL MIR in kilobits per second
+Device Allocation:AP"wirelessULMIR"UL MIR in kilobits per second
+Device Allocation:AP"wirelessRadiuswirelessRadiusTimeout"RADIUS server response timeout Device Allocation:AP"wirelessRadiusRetry"RADIUS server retry
+Device Allocation:AP"wirelessRadiusGUIUserAuth"GUI User Authentication Option
+Device Allocation:AP"wirelessRadiusCurrentGUIUserAuth"Current GUI User Authentication Option
+Device Allocation:SM"wirelessRadiusSeverInfo"RADIUS server info
+Device Allocation:SM"wirelessRadiusIdentityStr"Authentication Identity String
+Device Allocation:SM"wirelessRadiusIdentityRealm"Authentication Identity Realm
+Device Allocation:SM"wirelessRadiusUsername"Authentication Username
+Device Allocation:SM"wirelessRadiusPassword"Authentication Password
+Device Allocation:SM"wirelessRadiusServerListwirelessRadiusServerTable"RADIUS servers table Device Allocation:AP"wirelessRadiusServerEntry"RADIUS servers table entry
+Device Allocation:AP"wirelessRadiusServerIndex"RADIUS servers limiting number
+Device Allocation:AP"wirelessRadiusServerIP"RADIUS server IP address
+Device Allocation:AP"wirelessRadiusServerPort"RADIUS server port
+Device Allocation:AP"wirelessRadiusServerSecret"RADIUS server port
+Device Allocation:AP"useMACAddressAsWirelessRadiusUsernameFor using an Ethernet MAC address instead of
+
+RADIUS username
+0 - Off (default),
+1 - using ':' as format,
+2 - using '-' as format
+Device Allocation:SMwirelessRadiusCertificateListwirelessRadiusCertificateListRow1wirelessRadiusUseDefCertificate"RADIUS default certificate use Device Allocation:SM"wirelessRadiusDefCertificateView"RADIUS default certificate view
+Device Allocation:AP"wirelessRadiusCertificateListRow2wirelessRadiusUser1CertificateName"First user RADIUS certificate name Device Allocation:AP"wirelessRadiusUser1CertificateView"First user RADIUS certificate view
+Device Allocation:AP"wirelessRadiusCertificateListRow3wirelessRadiusUser2CertificateName"Second user RADIUS certificate name Device Allocation:AP"wirelessRadiusUser2CertificateView"Second user RADIUS certificate view
+Device Allocation:AP"wirelessRadiusCertificateSetwirelessRadiusDefaultCertificate"Default RADIUS certificate Device Allocation:SM"wirelessRadiusUser1Certificate"Default RADIUS certificate
+Device Allocation:SM"wirelessRadiusUser2Certificate"Default RADIUS certificate
+Device Allocation:SM"wirelessRadiusUseDefaultCertificate"RADIUS default certificate use
+Device Allocation:SM"wirelessRadiusExtraCertificateSetwirelessRadiusPMP320Certificate"PMP320 RADIUS certificate
+Device Allocation:SM"wirelessRadiusUsePMP320Certificate"RADIUS PMP320 certificate use
+Device Allocation:SM"wirelessRadiusPMP450Certificate"PMP450 RADIUS certificate
+Device Allocation:SM"wirelessRadiusUsePMP450Certificate"RADIUS PMP450 certificate use
+Device Allocation:SM"l2Firewalll2FirewallEnable"L2 ACL Status Flag:
+0 - Disable,
+1 - Enable.
+Device Allocation:AP, SM"l2FirewallTable"Table for L2 ACL
+Device Allocation:AP, SM"l2FirewallEntry"L2 ACL Table Entry
+Device Allocation:AP, SM"l2FirewallEntryIndex"L2 Firewall Table Index
+Table Entry is cleared if Index is set to zero
+
+Device Allocation:AP, SM"l2FirewallEntryName"L2 ACL Rule Name. Device Allocation:AP, SM"l2FirewallEntryAction"Action:
+0 - Reject,
+1 - Permit.
+Device Allocation:AP, SM"l2FirewallEntryInterface"Interface:
+1 - WAN,
+2 - LAN.
+Device Allocation:AP, SM"l2FirewallEntryLog"Log:
+1 - On,
+0 - Off.
+Device Allocation:AP, SM"l2FirewallEntryEtherType"L2 ACL Ethernet type:0000-ffff
+Device Allocation:AP, SM"l2FirewallEntryVlanID"L2 ACL Vlan ID
+Device Allocation:AP, SM"l2FirewallEntrySrcMAC"L2 ACL Source MAC Address
+Device Allocation:AP, SM"l2FirewallEntrySrcMask"L2 ACL Source MAC Address Mask
+Device Allocation:AP, SM"l2FirewallEntryDstMAC"L2 ACL Destination MAC Address
+Device Allocation:AP, SM"l2FirewallEntryDstMask"L2 ACL Destination MAC Address Mask
+Device Allocation:AP, SM"l2WanRemoteAccess"Remote Access To AP Through Wan:
+0 - Decline,
+1 - Allow
+Device Allocation:AP, SM"l2SnmpLanRemoteAccess"SNMP access from LAN:
+0 - Decline,
+1 - Allow
+Device Allocation:AP, SM"l2DHCPServersBelowSTA"Allow DHCP Servers Below SM:
+0 - Decline,
+1 - Allow
+Device Allocation:SM"l3Firewalll3FirewallEnable"L3 ACL Rule Status
+1 - Enable,
+0 - Disable
+Device Allocation:AP, SM"l3FirewallTable"L3 Firewall Table
+Device Allocation:AP, SM"l3FirewallEntry"L3 Firewall Table Entry
+Device Allocation:AP, SM"l3FirewallEntryIndex"L3 ACL Table Index
+Table Entry is cleared if Index is set to zero
+
+Device Allocation:AP, SM"l3FirewallEntryName"L3 ACL Rule Name Device Allocation:AP, SM"l3FirewallEntryAction"L3 ACL Rule Acrion
+0 - Reject,
+1 - Permit
+Device Allocation:AP, SM"l3FirewallEntryInterface"L3 ACL Rule Interface
+1 - WAN,
+2 - LAN
+Device Allocation:AP, SM"l3FirewallEntryLog"L3 ACL Rule Log Flag
+1 - Rule Loggin is On,
+0 - Rule Logging is Off Device Allocation:AP, SM"l3FirewallEntryProtocol"L3 ACL Rules IP Protocol
+1 - TCP,
+2 - UDP,
+3 - TCP+UDP,
+4 - ICMP,
+5 - IP
+Device Allocation:AP, SM"l3FirewallEntryPort"L3 ACL Rule Port
+Device Allocation:AP, SM"l3FirewallEntrySrcIP"L3 ACL Rule Source IP Address
+Device Allocation:AP, SM"l3FirewallEntrySrcMask"L3 ACL Rule Source Network Mask
+Device Allocation:AP, SM"l3FirewallEntryDstIP"L3 ACL Rule Destination IP Address
+Device Allocation:AP, SM"l3FirewallEntryDstMask"L3 ACL Rule Destination Network Mask
+Device Allocation:AP, SM"l3FirewallEntryDSCP"L3 ACL Rule DSCP
+Device Allocation:AP, SM"l3FirewallEntryToS"L3 ACL Rule TOS
+Device Allocation:AP, SM"confQoSvoipEnable"VoIP Enable:
+0 - disable,
+1 - enable
+Device Allocation:AP, SM"qosEnable"Enable QoS:
+0 - disable,
+1 - enable
+Device Allocation:AP, SM"classificationListTable"Quality of Service rules Table
+Device Allocation:AP, SM"classificationListEntry"Quality of Service Rule Entry
+Device Allocation:AP, SM"classificationRuleIndex"QoS Rule Table Index
+Table Entry is cleared if Index is set to zero
+
+Device Allocation:AP, SM"classificationRuleType"QoS Rule Type:
+1 - voip,
+2 - dscp,
+3 - cos,
+4 - vlanid,
+5 - ethertype,
+6 - ipv4,
+7 - mac,
+8 - broadcast,
+9 - multicast
+Device Allocation:AP, SM"classificationRuleValue"QoS Rule Value. Qos rule value is valid only for dscp,
+cos, vlanid and ethertype Rule types Device Allocation:AP, SM"classificationRuleIP"QoS IP Address
+Device Allocation:AP, SM"classificationRuleMAC"QoS MAC Address
+Device Allocation:AP, SM"classificationRuleMask"QoS Netmask
+Device Allocation:AP, SM"classificationRuleDirection"IP or MAC Rules direction:
+1 - Source,
+2 - Destination,
+3 - Either (or Both directions) Device Allocation:AP, SM"classificationRuleQueue"Rule Queue:
+1- Hight,
+2 - Low,
+3 - VoIP
+Device Allocation:AP, SM"mcPriority"Multicast Priority:
+0 - low,
+1 - high
+Device Allocation:AP, SM"bcPriority"Broadcast Priority:
+0 - low,
+1 - high
+Device Allocation:AP, SM"dmzdmzEnable"Enable DMZ:
+1 - Enable,
+0 - Disable.
+Device Allocation:SM"dmzIPAddress"DMZ IP Address.
+Device Allocation:SM"portForwardingportForwardingEntryEnable"Port Forwarding feature:
+0 - Disable,
+1 - Enable
+Device Allocation:SM"
+
+portForwardingTable"Port Forwarding Rules Table Device Allocation:SM"portForwardingEntry"Port Forwarding Table Rule Entry
+Device Allocation:SM"portForwardingTableEntryIndex"Port Forwarding Table Entry Index
+Table Entry is cleared if Index is set to zero
+Device Allocation:SM"portForwardingTableEntryProtocol"Port Forwarding Table Entry Rule Protocol:
+0 - Clear Rule,
+1 - UDP,
+2 - TCP,
+3 - UDP+TCP
+Device Allocation:SM"portForwardingTableEntryWLANPortBegin"Port Forwarding WLAN Port Start number
+Device Allocation:SM"portForwardingTableEntryWLANPortEnd"Port Forwarding WLAN Port End number
+Device Allocation:SM"portForwardingTableEntryLANIP"Port Forwarding LAN IP Address
+Device Allocation:SM"acsacsControlAutomatic Channel Selection (ACS) control:
+0 - No change,
+1 - Run scan now,
+2 - Abort current scan
+Device Allocation:APacsEnableAutomatic Channel Selection (ACS) automatically
+selects best values for
+centerFrequency, dfsAlternative1CenterFrequency
+and dfsAlternative2CenterFrequency:
+0 - Disable,
+1 - Enable
+Device Allocation:APacsScanMaxDwellTimeMaximum dwell time during Automatic Channel
+Selection (ACS) scan in milliseconds. Device Allocation:APacsScanMinDwellTimeMinimum dwell time during Automatic Channel
+Selection (ACS) scan in milliseconds.
+Device Allocation:APvlansmembershipVLANTable"Membership VLAN Rules Table Device Allocation:SM"membershipVLANEntry"Membership VLAN Table Rule Entry
+Device Allocation:SM"membershipVLANTableEntryIndex"Membership VLAN Table Entry Index
+Table Entry is cleared if Index is set to zero
+Device Allocation:SM"membershipVLANTableEntryVIDBegin"Membership VLAN Table Entry VLAN ID Begin
+Device Allocation:SM"membershipVLANTableEntryVIDEnd"Membership VLAN Table Entry VLAN ID End
+Device Allocation:SM"mappingVLANTable"Mapping VLAN Rules Table
+
+Device Allocation:SM"mappingVLANEntry"Mapping VLAN Table Rule Entry Device Allocation:SM"mappingVLANTableEntryIndex"Mapping VLAN Table Entry Index
+Table Entry is cleared if Index is set to zero
+Device Allocation:SM"mappingVLANTableEntryCVLAN"Mapping VLAN Table C-VLAN ID,
+Defines VLAN ID to be mapped from CPE side. Device Allocation:SM"mappingVLANTableEntrySVLAN"Mapping VLAN Table S-VLAN ID,
+Defines VLAN ID to be mapped from Service
+provider.
+Device Allocation:SM"cnMaestro / CNScambiumDeviceAgentCNSURLcnMaestro URL:
+This specifies the URL for accessing the cnMaestro
+Cloud ManagercambiumDeviceAgentEnableRemote Management:
+0 - Disable
+1 - Enable
+Cambium provides cloud management of Cambium devices called cnMaestro.
+This allows a user to manage all of their various Cambium devices via the web from any location in the world.
+This field enables this cnMaestro Cloud Management.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
